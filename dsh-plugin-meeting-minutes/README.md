@@ -85,16 +85,25 @@
 
 ## 三、安装 / 卸载
 
-在应用内安装（profile 会热加载新 bundle）：
+推荐直接安装会议套件（一次装两个插件）：
 
 ```
-plugin_manager install_bundle  /Users/zgt/Documents/deepseek-harness/default-workspace/dsh-meeting-minutes
+@zhangguitao666/meeting-suite
 ```
+
+只装会议纪要：
+
+```
+dsh-plugin-meeting-minutes@1.0.0
+```
+
+在 Harness 的 **Plugins → Add plugin** 里填上面的包名，或在 Agent 里让 `plugin_manager install_bundle` 安装；装好后刷新页面（⌘R）。
 
 装好后**刷新一次网页**（新浏览器端 bundle 只在页面重新加载时进入启动清单），左侧栏出现「会议纪要」图标。
 
 - 停用但保留：`plugin_manager set_bundle dsh-plugin-meeting-minutes enabled=false`
 - 彻底卸载：`plugin_manager remove_bundle dsh-plugin-meeting-minutes`
+- 套件伞包：`plugin_manager remove_bundle @zhangguitao666/meeting-suite`
 - 依赖：宿主自带的 `tools`、`webServer` 服务；`speechToText`（语音识别）与 `llm`（总结）为可选服务，缺失时对应按钮会给出中文提示。
 
 ## 四、数据与接口

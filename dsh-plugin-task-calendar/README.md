@@ -93,11 +93,19 @@ calendar_add_tasks({
 
 ## 五、安装 / 卸载
 
-安装（推荐在应用内安装，profile 会热加载新 bundle）：
+推荐直接安装会议套件（一次装两个插件）：
 
 ```
-plugin_manager install_bundle  /Users/zgt/Documents/deepseek-harness/default-workspace/dsh-task-calendar
+@zhangguitao666/meeting-suite
 ```
+
+只装任务日历：
+
+```
+dsh-plugin-task-calendar@1.0.0
+```
+
+在 Harness 的 **Plugins → Add plugin** 里填上面的包名，或在 Agent 里让 `plugin_manager install_bundle` 安装；装好后刷新页面（⌘R）。
 
 装好后**刷新一次网页**（新加入的浏览器端 bundle 只在页面重新加载时进入启动清单）：macOS `⌘R`。
 之后左侧栏就会出现日历图标。

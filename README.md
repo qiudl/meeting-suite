@@ -7,7 +7,7 @@
 | **任务日历** `dsh-plugin-task-calendar` | 把确认过的事项变成日历任务，按开始/截止提醒；月历 + 甘特图看进度。 |
 | **会议纪要** `dsh-plugin-meeting-minutes` | 实时录音转文字、导入腾讯会议纪要、AI 生成可视化纪要；确认待办后写入任务日历；会议结束自动入库本机录制。 |
 
-## 一次装两个（推荐给最终用户）
+## 首选安装（一次装两个）
 
 在 Harness 的 **Plugins → Add plugin** 里输入：
 
@@ -15,41 +15,34 @@
 @zhangguitao666/meeting-suite
 ```
 
-安装后同时得到「会议纪要」和「任务日历」，⌘R 刷新页面即可。也可让 Agent 用 `plugin_manager install_bundle` 安装这个包。
+安装后同时得到「会议纪要」和「任务日历」，⌘R 刷新页面即可。
 
-两个插件也可以单独装：
+> 也可以让 Agent 用 `plugin_manager install_bundle` 安装这个包；这是最简单、最少步骤的安装方式。
+
+## 通过插件市场安装（可选）
+
+1. 打开 Harness 左侧栏 **插件（Plugins）** → **Discover**。
+   - 如果看不到 Discover：先在 **Experimental plugins** 里开启 **Custom plugin markets**。
+2. 点 **Add index source**，填入市场索引地址（两个地址任选其一）：
+
+   ```
+   https://raw.githubusercontent.com/zhangguitao666/meeting-suite/main/market/index.json
+   https://cdn.jsdelivr.net/gh/zhangguitao666/meeting-suite@main/market/index.json
+   ```
+
+3. 在列表里安装 **会议套件（一键装两个）**，或单独安装「会议纪要」「任务日历」。
+4. 按提示确认后刷新页面（⌘R）。
+
+> 市场条目使用 npm 源（`name@version`），安装时从 npm registry 拉取。
+
+## 单独安装其中一个（npm）
+
+只要其中一个插件时，在 **Plugins → Add plugin** 输入：
 
 ```
 dsh-plugin-meeting-minutes@1.0.0
 dsh-plugin-task-calendar@1.0.0
 ```
-
-## 通过插件市场安装（推荐）
-
-1. 打开 Harness 左侧栏 **插件（Plugins）** → **Discover**。
-   - 如果看不到 Discover：先在 **Experimental plugins** 里开启 **Custom plugin markets**。
-2. 点 **Add index source**，填入市场索引地址：
-
-   ```
-   https://raw.githubusercontent.com/zhangguitao666/meeting-suite/main/market/index.json
-   ```
-
-3. 在列表里安装 **任务日历** 和 **会议纪要**，按提示确认。
-4. 浏览器端插件需要重新加载网页后才会出现新面板（⌘R）。
-
-> 市场条目使用 npm 源（`name@version`），安装时从 npm registry 拉取；也支持直接安装下面的 npm 包名。
-
-## 直接安装单个插件（Plugins → Add plugin）
-
-Harness 的 **Plugins → Add plugin** 支持 npm 包名，直接填：
-
-```
-@zhangguitao666/meeting-suite        # 一次装两个（推荐）
-dsh-plugin-meeting-minutes@1.0.0     # 只要会议纪要
-dsh-plugin-task-calendar@1.0.0       # 只要任务日历
-```
-
-安装后刷新页面（⌘R）即可使用。也可以对 Agent 说「用 plugin_manager 安装 @zhangguitao666/meeting-suite」。
 
 ## 手动安装（不使用市场 UI）
 

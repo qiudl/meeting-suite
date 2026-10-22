@@ -5,8 +5,8 @@
     "en": "Meeting Suite · DSH Plugins"
   },
   "description": {
-    "zh": "会议纪要与任务日历两个插件，以及一次安装两个的会议套件伞包。",
-    "en": "Meeting Minutes and Task Calendar plugins, plus a one-install umbrella bundle."
+    "zh": "首选在 Harness 的 Plugins → Add plugin 输入 @zhangguitao666/meeting-suite，一次安装会议纪要与任务日历；也可在市场里单独安装。",
+    "en": "Install both Meeting Minutes and Task Calendar at once by entering @zhangguitao666/meeting-suite in Plugins → Add plugin; each plugin is also available separately."
   },
   "metadata": {
     "categories": {
@@ -53,43 +53,43 @@
   },
   "plugins": [
     {
-      "name": "dsh-plugin-task-calendar",
+      "name": "@zhangguitao666/meeting-suite",
       "title": {
-        "zh": "任务日历",
-        "en": "Task Calendar"
+        "zh": "会议套件（一键装两个）",
+        "en": "Meeting Suite (both plugins)"
       },
       "description": {
-        "zh": "把会议纪要确认过的事项变成日历任务，按开始/截止时间提醒，并提供月历与甘特图推进度。",
-        "en": "Turns confirmed action items into calendar tasks with start/due reminders plus month-grid and Gantt progress views."
+        "zh": "一个包同时安装「会议纪要」和「任务日历」：录音/腾讯会议纪要 → AI 可视化纪要 → 待办写入日历。",
+        "en": "Installs both Meeting Minutes and Task Calendar in one step: recordings or Tencent Meeting notes → AI-written minutes → action items in the calendar."
       },
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IuS7u+WKoeaXpeWOhiI+CiAgPHJlY3QgeD0iMy41IiB5PSI2IiB3aWR0aD0iMjUiIGhlaWdodD0iMjEiIHJ4PSI1IiBmaWxsPSJub25lIiBzdHJva2U9IiMxZjdhNTYiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxwYXRoIGQ9Ik0zLjUgMTJoMjUiIHN0cm9rZT0iIzFmN2E1NiIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHJlY3QgeD0iOSIgeT0iMiIgd2lkdGg9IjQiIGhlaWdodD0iNyIgcng9IjEuNiIgZmlsbD0iIzFmN2E1NiIvPgogIDxyZWN0IHg9IjE5IiB5PSIyIiB3aWR0aD0iNCIgaGVpZ2h0PSI3IiByeD0iMS42IiBmaWxsPSIjMWY3YTU2Ii8+CiAgPHBhdGggZD0iTTkuNSAxN2g1LjVNOS41IDIxLjVoOU0xNyAxN2g1LjVNMTguNSAyMS41aDQiIHN0cm9rZT0iIzRmYWY4NiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8Y2lyY2xlIGN4PSIyNC41IiBjeT0iMjMuNSIgcj0iNC41IiBmaWxsPSIjMWY3YTU2Ii8+CiAgPHBhdGggZD0ibTIyLjIgMjMuNSAxLjYgMS42IDMtMy4yIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+Cg==",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IuS8muiurue6quimgSI+CiAgPHJlY3QgeD0iMy41IiB5PSI2IiB3aWR0aD0iMjUiIGhlaWdodD0iMjEiIHJ4PSI1IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZmZWQiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxyZWN0IHg9IjkiIHk9IjIuNSIgd2lkdGg9IjQiIGhlaWdodD0iNyIgcng9IjEuNiIgZmlsbD0iIzJmNmZlZCIvPgogIDxyZWN0IHg9IjE5IiB5PSIyLjUiIHdpZHRoPSI0IiBoZWlnaHQ9IjciIHJ4PSIxLjYiIGZpbGw9IiMyZjZmZWQiLz4KICA8cmVjdCB4PSIxMiIgeT0iMTAuNSIgd2lkdGg9IjgiIGhlaWdodD0iMTMiIHJ4PSI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZmZWQiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxwYXRoIGQ9Ik0xNS41IDIwLjV2Mi4yTTE2LjUgMjAuNXYyLjIiIHN0cm9rZT0iIzJmNmZlZCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNMTIuNSAyMi43aDciIHN0cm9rZT0iIzJmNmZlZCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNOCAxNGgyTTIyIDE0aDJNOCAxOGgyTTIyIDE4aDIiIHN0cm9rZT0iIzdhYTJmMCIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K",
       "author": "zhangguitao666",
-      "homepage": "https://github.com/zhangguitao666/meeting-suite/tree/main/dsh-plugin-task-calendar",
+      "homepage": "https://github.com/zhangguitao666/meeting-suite/tree/main/meeting-suite",
       "repository": {
         "url": "https://github.com/zhangguitao666/meeting-suite",
-        "directory": "dsh-plugin-task-calendar"
+        "directory": "meeting-suite"
       },
       "metadata": {
-        "category": "productivity",
+        "category": "meetings",
         "keywords": [
-          "task",
+          "meeting",
+          "minutes",
           "calendar",
-          "会议",
-          "待办",
-          "日历",
-          "提醒",
-          "gantt",
-          "reminder"
+          "会议套件",
+          "一键安装",
+          "suite"
         ],
         "labels": [
+          "meetings",
           "calendar",
-          "chinese"
+          "chinese",
+          "automation"
         ]
       },
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1761119868,
+          "publishTimestamp": 1761119625,
           "source": {
             "type": "npm"
           },
@@ -149,43 +149,43 @@
       ]
     },
     {
-      "name": "@zhangguitao666/meeting-suite",
+      "name": "dsh-plugin-task-calendar",
       "title": {
-        "zh": "会议套件（一键装两个）",
-        "en": "Meeting Suite (both plugins)"
+        "zh": "任务日历",
+        "en": "Task Calendar"
       },
       "description": {
-        "zh": "一个包同时安装「会议纪要」和「任务日历」：录音/腾讯会议纪要 → AI 可视化纪要 → 待办写入日历。",
-        "en": "Installs both Meeting Minutes and Task Calendar in one step: recordings or Tencent Meeting notes → AI-written minutes → action items in the calendar."
+        "zh": "把会议纪要确认过的事项变成日历任务，按开始/截止时间提醒，并提供月历与甘特图推进度。",
+        "en": "Turns confirmed action items into calendar tasks with start/due reminders plus month-grid and Gantt progress views."
       },
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IuS8muiurue6quimgSI+CiAgPHJlY3QgeD0iMy41IiB5PSI2IiB3aWR0aD0iMjUiIGhlaWdodD0iMjEiIHJ4PSI1IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZmZWQiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxyZWN0IHg9IjkiIHk9IjIuNSIgd2lkdGg9IjQiIGhlaWdodD0iNyIgcng9IjEuNiIgZmlsbD0iIzJmNmZlZCIvPgogIDxyZWN0IHg9IjE5IiB5PSIyLjUiIHdpZHRoPSI0IiBoZWlnaHQ9IjciIHJ4PSIxLjYiIGZpbGw9IiMyZjZmZWQiLz4KICA8cmVjdCB4PSIxMiIgeT0iMTAuNSIgd2lkdGg9IjgiIGhlaWdodD0iMTMiIHJ4PSI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZmZWQiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxwYXRoIGQ9Ik0xNS41IDIwLjV2Mi4yTTE2LjUgMjAuNXYyLjIiIHN0cm9rZT0iIzJmNmZlZCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNMTIuNSAyMi43aDciIHN0cm9rZT0iIzJmNmZlZCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNOCAxNGgyTTIyIDE0aDJNOCAxOGgyTTIyIDE4aDIiIHN0cm9rZT0iIzdhYTJmMCIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IuS7u+WKoeaXpeWOhiI+CiAgPHJlY3QgeD0iMy41IiB5PSI2IiB3aWR0aD0iMjUiIGhlaWdodD0iMjEiIHJ4PSI1IiBmaWxsPSJub25lIiBzdHJva2U9IiMxZjdhNTYiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxwYXRoIGQ9Ik0zLjUgMTJoMjUiIHN0cm9rZT0iIzFmN2E1NiIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHJlY3QgeD0iOSIgeT0iMiIgd2lkdGg9IjQiIGhlaWdodD0iNyIgcng9IjEuNiIgZmlsbD0iIzFmN2E1NiIvPgogIDxyZWN0IHg9IjE5IiB5PSIyIiB3aWR0aD0iNCIgaGVpZ2h0PSI3IiByeD0iMS42IiBmaWxsPSIjMWY3YTU2Ii8+CiAgPHBhdGggZD0iTTkuNSAxN2g1LjVNOS41IDIxLjVoOU0xNyAxN2g1LjVNMTguNSAyMS41aDQiIHN0cm9rZT0iIzRmYWY4NiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8Y2lyY2xlIGN4PSIyNC41IiBjeT0iMjMuNSIgcj0iNC41IiBmaWxsPSIjMWY3YTU2Ii8+CiAgPHBhdGggZD0ibTIyLjIgMjMuNSAxLjYgMS42IDMtMy4yIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+Cg==",
       "author": "zhangguitao666",
-      "homepage": "https://github.com/zhangguitao666/meeting-suite/tree/main/meeting-suite",
+      "homepage": "https://github.com/zhangguitao666/meeting-suite/tree/main/dsh-plugin-task-calendar",
       "repository": {
         "url": "https://github.com/zhangguitao666/meeting-suite",
-        "directory": "meeting-suite"
+        "directory": "dsh-plugin-task-calendar"
       },
       "metadata": {
-        "category": "meetings",
+        "category": "productivity",
         "keywords": [
-          "meeting",
-          "minutes",
+          "task",
           "calendar",
-          "会议套件",
-          "一键安装",
-          "suite"
+          "会议",
+          "待办",
+          "日历",
+          "提醒",
+          "gantt",
+          "reminder"
         ],
         "labels": [
-          "meetings",
           "calendar",
-          "chinese",
-          "automation"
+          "chinese"
         ]
       },
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1761119625,
+          "publishTimestamp": 1761119868,
           "source": {
             "type": "npm"
           },
