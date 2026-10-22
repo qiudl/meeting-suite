@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-task-calendar",
   "version": "1.0.0",
-  "private": true,
+  "private": false,
   "description": "任务日历：把会议纪要变成日历任务，展示开始/剩余天数/逾期并提醒",
   "type": "module",
   "main": "lib/index.js",
@@ -36,8 +36,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zhangguitao666/dsh-plugins.git",
+    "url": "git+https://github.com/zhangguitao666/meeting-suite.git",
     "directory": "dsh-plugin-task-calendar"
   },
-  "homepage": "https://github.com/zhangguitao666/dsh-plugins/tree/main/dsh-plugin-task-calendar"
+  "homepage": "https://github.com/zhangguitao666/meeting-suite/tree/main/dsh-plugin-task-calendar"
 }

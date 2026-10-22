@@ -1,0 +1,44 @@
+{
+  "name": "@zhangguitao666/meeting-suite",
+  "version": "1.0.0",
+  "description": "会议套件：会议纪要 + 任务日历，一次安装两个 DSH 插件",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "dsh-plugin-task-calendar": "1.0.0",
+    "dsh-plugin-meeting-minutes": "1.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhangguitao666/meeting-suite.git",
+    "directory": "meeting-suite"
+  },
+  "homepage": "https://github.com/zhangguitao666/meeting-suite",
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "meeting",
+    "minutes",
+    "calendar",
+    "deepseek-harness"
+  ],
+  "author": "zhangguitao666",
+  "license": "MIT"
+}

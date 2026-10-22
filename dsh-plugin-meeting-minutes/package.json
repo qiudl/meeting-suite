@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-meeting-minutes",
   "version": "1.0.0",
-  "private": true,
+  "private": false,
   "description": "会议纪要：录音转文字、腾讯会议纪要导入、AI 总结、可视化纪要与待办写入任务日历",
   "type": "module",
   "main": "lib/index.js",
@@ -36,8 +36,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zhangguitao666/dsh-plugins.git",
+    "url": "git+https://github.com/zhangguitao666/meeting-suite.git",
     "directory": "dsh-plugin-meeting-minutes"
   },
-  "homepage": "https://github.com/zhangguitao666/dsh-plugins/tree/main/dsh-plugin-meeting-minutes"
+  "homepage": "https://github.com/zhangguitao666/meeting-suite/tree/main/dsh-plugin-meeting-minutes"
 }

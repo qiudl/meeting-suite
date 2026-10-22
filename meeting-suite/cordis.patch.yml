@@ -1,0 +1,8 @@
+# Umbrella bundle: installs both plugin packages as dependencies and inserts
+# their loader rows. Row ids are unique to the suite so they never collide with
+# a standalone installation of either plugin.
+- insert:
+    - id: meeting-suite-calendar
+      name: 'dsh-plugin-task-calendar'
+    - id: meeting-suite-meeting
+      name: 'dsh-plugin-meeting-minutes'

@@ -1,23 +1,20 @@
 #!/usr/bin/env node
 /**
- * Build the format-1 plugin market index from the two packages in this repo.
+ * Build the format-1 plugin market index for the meeting-suite packages.
+ *
+ * The three packages are published to npm, so every entry uses an npm source
+ * (`name@version`); install targets are resolved with the default registry.
  *
  * Usage:
  *   node scripts/build-market-index.mjs \
- *     --repo https://github.com/zhangguitao666/dsh-plugins \
- *     --commit <40-hex-commit-that-contains-the-packages> \
+ *     --repo https://github.com/zhangguitao666/meeting-suite \
  *     [--timestamp <unix-seconds>] [--out market/index.json]
  *
- * The index pins every version to an exact Git commit (DSH installs market
- * entries as `git+<repo>.git#<commit>&path:/<package-directory>`), so run this
- * AFTER committing the packages and use that commit's SHA. Commit the generated
- * index afterwards; updating a plugin means: commit packages → rerun with the
- * new SHA → commit index → push.
+ * `--timestamp` defaults to now; it is display/sort metadata only and does not
+ * affect installation.
  */
 
-import { execFileSync } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -47,14 +44,23 @@ const PLUGINS = [
       en: 'Live local transcription, Tencent Meeting notes import, AI-written visual minutes, confirmed tasks written to the task calendar, and automatic ingest after meetings.',
     },
   },
+  {
+    dir: 'meeting-suite',
+    category: 'meetings',
+    labels: ['meetings', 'calendar', 'chinese', 'automation'],
+    keywords: ['meeting', 'minutes', 'calendar', '会议套件', '一键安装', 'suite'],
+    title: { zh: '会议套件（一键装两个）', en: 'Meeting Suite (both plugins)' },
+    description: {
+      zh: '一个包同时安装「会议纪要」和「任务日历」：录音/腾讯会议纪要 → AI 可视化纪要 → 待办写入日历。',
+      en: 'Installs both Meeting Minutes and Task Calendar in one step: recordings or Tencent Meeting notes → AI-written minutes → action items in the calendar.',
+    },
+  },
 ]
 
 /** Read one required CLI option. */
 function option(name) {
   const index = process.argv.indexOf(`--${name}`)
-  if (index === -1 || process.argv[index + 1] === undefined) {
-    throw new Error(`missing --${name}`)
-  }
+  if (index === -1 || process.argv[index + 1] === undefined) throw new Error(`missing --${name}`)
   return process.argv[index + 1]
 }
 
@@ -65,37 +71,28 @@ function optional(name) {
 }
 
 const repo = option('repo').replace(/\.git$/, '').replace(/\/$/, '')
-const commit = option('commit')
-if (!/^[0-9a-f]{40}$/u.test(commit)) throw new Error('--commit must be a lowercase 40-hex-digit Git SHA')
-
-const timestamp = Number(optional('timestamp') ?? execFileSync('git', ['show', '-s', '--format=%ct', commit], { cwd: ROOT, encoding: 'utf8' }).trim())
-if (!Number.isInteger(timestamp) || timestamp <= 0) throw new Error('could not determine a publish timestamp')
-
+const timestamp = Number(optional('timestamp') ?? Math.floor(Date.now() / 1000))
+if (!Number.isInteger(timestamp) || timestamp <= 0) throw new Error('--timestamp must be a positive integer')
 const outPath = resolve(ROOT, optional('out') ?? 'market/index.json')
 
 const plugins = []
 for (const meta of PLUGINS) {
-  const dir = join(ROOT, meta.dir)
-  const manifest = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'))
-  const icon = await readFile(join(dir, 'icon.svg'))
+  const manifest = JSON.parse(await readFile(join(ROOT, meta.dir, 'package.json'), 'utf8'))
+  const icon = (await readFile(join(ROOT, meta.dir, 'icon.svg'))).toString('base64')
   plugins.push({
     name: manifest.name,
     title: meta.title,
     description: meta.description,
-    icon: `data:image/svg+xml;base64,${icon.toString('base64')}`,
+    icon: `data:image/svg+xml;base64,${icon}`,
     author: 'zhangguitao666',
     homepage: `${repo}/tree/main/${meta.dir}`,
     repository: { url: repo, directory: meta.dir },
-    metadata: {
-      category: meta.category,
-      keywords: meta.keywords,
-      labels: meta.labels,
-    },
+    metadata: { category: meta.category, keywords: meta.keywords, labels: meta.labels },
     versions: [
       {
         version: manifest.version,
         publishTimestamp: timestamp,
-        source: { type: 'git', url: repo, commit, path: meta.dir },
+        source: { type: 'npm' },
         engines: { dsh: '>=0.2.1-rc.2 <0.3.0' },
       },
     ],
@@ -104,10 +101,10 @@ for (const meta of PLUGINS) {
 
 const index = {
   format: 1,
-  title: { zh: '张桂涛的 DSH 插件', en: 'zhangguitao666 DSH Plugins' },
+  title: { zh: '会议套件 · DSH 插件', en: 'Meeting Suite · DSH Plugins' },
   description: {
-    zh: '任务日历与会议纪要：会议结束后自动留存、AI 生成可视化纪要，待办一键写入日历。',
-    en: 'Task calendar and meeting minutes: automatic post-meeting ingest, AI-written visual minutes, confirmed action items written to the calendar.',
+    zh: '会议纪要与任务日历两个插件，以及一次安装两个的会议套件伞包。',
+    en: 'Meeting Minutes and Task Calendar plugins, plus a one-install umbrella bundle.',
   },
   metadata: {
     categories: {
@@ -126,4 +123,4 @@ const index = {
 }
 
 await writeFile(outPath, `${JSON.stringify(index, null, 2)}\n`, 'utf8')
-console.log(`wrote ${outPath} (${plugins.length} plugins, commit ${commit})`)
+console.log(`wrote ${outPath} (${plugins.length} plugins)`)
