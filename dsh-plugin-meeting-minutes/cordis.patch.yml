@@ -1,0 +1,7 @@
+# The meeting-minutes bundle patch: one loader row for the host half.
+#
+# The browser half needs no second row: the client module system discovers it
+# from this package's `dsh.client` declaration.
+- insert:
+    - id: meeting-minutes
+      name: 'dsh-plugin-meeting-minutes'

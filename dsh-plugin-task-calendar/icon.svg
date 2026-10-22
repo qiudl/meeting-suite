@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="任务日历">
+  <rect x="3.5" y="6" width="25" height="21" rx="5" fill="none" stroke="#1f7a56" stroke-width="2"/>
+  <path d="M3.5 12h25" stroke="#1f7a56" stroke-width="2"/>
+  <rect x="9" y="2" width="4" height="7" rx="1.6" fill="#1f7a56"/>
+  <rect x="19" y="2" width="4" height="7" rx="1.6" fill="#1f7a56"/>
+  <path d="M9.5 17h5.5M9.5 21.5h9M17 17h5.5M18.5 21.5h4" stroke="#4faf86" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="24.5" cy="23.5" r="4.5" fill="#1f7a56"/>
+  <path d="m22.2 23.5 1.6 1.6 3-3.2" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

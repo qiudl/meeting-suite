@@ -1,0 +1,43 @@
+{
+  "name": "dsh-plugin-task-calendar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "任务日历：把会议纪要变成日历任务，展示开始/剩余天数/逾期并提醒",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  },
+  "files": [
+    "lib/**/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZhangGuitao/dsh-plugins.git",
+    "directory": "dsh-plugin-task-calendar"
+  },
+  "homepage": "https://github.com/ZhangGuitao/dsh-plugins/tree/main/dsh-plugin-task-calendar"
+}

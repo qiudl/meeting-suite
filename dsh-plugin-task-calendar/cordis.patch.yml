@@ -1,0 +1,13 @@
+# The task-calendar bundle patch: one loader row for the host half.
+#
+# The row's `name` is resolved from the profile directory, where this package is
+# installed as a dependency, so a local `pnpm add <path>` / `dsh plugin add
+# <path>` install activates it. The browser half needs no second row: the client
+# module system discovers it from this package's `dsh.client` declaration.
+#
+# The row deliberately carries no `config`: the plugin exports no Config schema,
+# and its reminder policy is edited live from the panel (and persisted in the
+# task document).
+- insert:
+    - id: task-calendar
+      name: 'dsh-plugin-task-calendar'
