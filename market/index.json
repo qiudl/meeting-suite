@@ -89,11 +89,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792640443,
+          "publishTimestamp": 1792650588,
           "source": {
             "type": "git",
             "url": "https://github.com/zhangguitao666/dsh-plugins",
-            "commit": "c8754d1f467bbc65c1ccb4b8c717ba3a8df0aa26",
+            "commit": "1d6d258b17938abf978eb453425306c697db8567",
             "path": "dsh-plugin-task-calendar"
           },
           "engines": {
@@ -141,11 +141,11 @@
       "versions": [
         {
           "version": "1.0.0",
-          "publishTimestamp": 1792640443,
+          "publishTimestamp": 1792650588,
           "source": {
             "type": "git",
             "url": "https://github.com/zhangguitao666/dsh-plugins",
-            "commit": "c8754d1f467bbc65c1ccb4b8c717ba3a8df0aa26",
+            "commit": "1d6d258b17938abf978eb453425306c697db8567",
             "path": "dsh-plugin-meeting-minutes"
           },
           "engines": {
