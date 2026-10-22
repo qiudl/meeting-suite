@@ -14,7 +14,7 @@
 2. 点 **Add index source**，填入市场索引地址：
 
    ```
-   https://raw.githubusercontent.com/ZhangGuitao/dsh-plugins/main/market/index.json
+   https://raw.githubusercontent.com/zhangguitao666/dsh-plugins/main/market/index.json
    ```
 
 3. 在列表里安装 **任务日历** 和 **会议纪要**，按提示确认。
@@ -27,8 +27,8 @@
 在 Harness 里让 Agent 调 `plugin_manager install_bundle`，target 用固定提交的 Git 规格：
 
 ```
-git+https://github.com/ZhangGuitao/dsh-plugins.git#<commit>&path:/dsh-plugin-task-calendar
-git+https://github.com/ZhangGuitao/dsh-plugins.git#<commit>&path:/dsh-plugin-meeting-minutes
+git+https://github.com/zhangguitao666/dsh-plugins.git#<commit>&path:/dsh-plugin-task-calendar
+git+https://github.com/zhangguitao666/dsh-plugins.git#<commit>&path:/dsh-plugin-meeting-minutes
 ```
 
 具体 `<commit>` 见 `market/index.json` 里对应版本的 `source.commit`。
@@ -50,7 +50,7 @@ scripts/build-market-index.mjs
 
    ```bash
    node scripts/build-market-index.mjs \
-     --repo https://github.com/ZhangGuitao/dsh-plugins \
+     --repo https://github.com/zhangguitao666/dsh-plugins \
      --commit "$(git rev-parse HEAD)"
    ```
 

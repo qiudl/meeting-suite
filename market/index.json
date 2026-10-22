@@ -2,7 +2,7 @@
   "format": 1,
   "title": {
     "zh": "张桂涛的 DSH 插件",
-    "en": "ZhangGuitao DSH Plugins"
+    "en": "zhangguitao666 DSH Plugins"
   },
   "description": {
     "zh": "任务日历与会议纪要：会议结束后自动留存、AI 生成可视化纪要，待办一键写入日历。",
@@ -63,10 +63,10 @@
         "en": "Turns confirmed action items into calendar tasks with start/due reminders plus month-grid and Gantt progress views."
       },
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IuS7u+WKoeaXpeWOhiI+CiAgPHJlY3QgeD0iMy41IiB5PSI2IiB3aWR0aD0iMjUiIGhlaWdodD0iMjEiIHJ4PSI1IiBmaWxsPSJub25lIiBzdHJva2U9IiMxZjdhNTYiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxwYXRoIGQ9Ik0zLjUgMTJoMjUiIHN0cm9rZT0iIzFmN2E1NiIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHJlY3QgeD0iOSIgeT0iMiIgd2lkdGg9IjQiIGhlaWdodD0iNyIgcng9IjEuNiIgZmlsbD0iIzFmN2E1NiIvPgogIDxyZWN0IHg9IjE5IiB5PSIyIiB3aWR0aD0iNCIgaGVpZ2h0PSI3IiByeD0iMS42IiBmaWxsPSIjMWY3YTU2Ii8+CiAgPHBhdGggZD0iTTkuNSAxN2g1LjVNOS41IDIxLjVoOU0xNyAxN2g1LjVNMTguNSAyMS41aDQiIHN0cm9rZT0iIzRmYWY4NiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8Y2lyY2xlIGN4PSIyNC41IiBjeT0iMjMuNSIgcj0iNC41IiBmaWxsPSIjMWY3YTU2Ii8+CiAgPHBhdGggZD0ibTIyLjIgMjMuNSAxLjYgMS42IDMtMy4yIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+Cg==",
-      "author": "ZhangGuitao",
-      "homepage": "https://github.com/ZhangGuitao/dsh-plugins/tree/main/dsh-plugin-task-calendar",
+      "author": "zhangguitao666",
+      "homepage": "https://github.com/zhangguitao666/dsh-plugins/tree/main/dsh-plugin-task-calendar",
       "repository": {
-        "url": "https://github.com/ZhangGuitao/dsh-plugins",
+        "url": "https://github.com/zhangguitao666/dsh-plugins",
         "directory": "dsh-plugin-task-calendar"
       },
       "metadata": {
@@ -92,7 +92,7 @@
           "publishTimestamp": 1792640443,
           "source": {
             "type": "git",
-            "url": "https://github.com/ZhangGuitao/dsh-plugins",
+            "url": "https://github.com/zhangguitao666/dsh-plugins",
             "commit": "c8754d1f467bbc65c1ccb4b8c717ba3a8df0aa26",
             "path": "dsh-plugin-task-calendar"
           },
@@ -113,10 +113,10 @@
         "en": "Live local transcription, Tencent Meeting notes import, AI-written visual minutes, confirmed tasks written to the task calendar, and automatic ingest after meetings."
       },
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IuS8muiurue6quimgSI+CiAgPHJlY3QgeD0iMy41IiB5PSI2IiB3aWR0aD0iMjUiIGhlaWdodD0iMjEiIHJ4PSI1IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZmZWQiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxyZWN0IHg9IjkiIHk9IjIuNSIgd2lkdGg9IjQiIGhlaWdodD0iNyIgcng9IjEuNiIgZmlsbD0iIzJmNmZlZCIvPgogIDxyZWN0IHg9IjE5IiB5PSIyLjUiIHdpZHRoPSI0IiBoZWlnaHQ9IjciIHJ4PSIxLjYiIGZpbGw9IiMyZjZmZWQiLz4KICA8cmVjdCB4PSIxMiIgeT0iMTAuNSIgd2lkdGg9IjgiIGhlaWdodD0iMTMiIHJ4PSI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZmZWQiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxwYXRoIGQ9Ik0xNS41IDIwLjV2Mi4yTTE2LjUgMjAuNXYyLjIiIHN0cm9rZT0iIzJmNmZlZCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNMTIuNSAyMi43aDciIHN0cm9rZT0iIzJmNmZlZCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNOCAxNGgyTTIyIDE0aDJNOCAxOGgyTTIyIDE4aDIiIHN0cm9rZT0iIzdhYTJmMCIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K",
-      "author": "ZhangGuitao",
-      "homepage": "https://github.com/ZhangGuitao/dsh-plugins/tree/main/dsh-plugin-meeting-minutes",
+      "author": "zhangguitao666",
+      "homepage": "https://github.com/zhangguitao666/dsh-plugins/tree/main/dsh-plugin-meeting-minutes",
       "repository": {
-        "url": "https://github.com/ZhangGuitao/dsh-plugins",
+        "url": "https://github.com/zhangguitao666/dsh-plugins",
         "directory": "dsh-plugin-meeting-minutes"
       },
       "metadata": {
@@ -144,7 +144,7 @@
           "publishTimestamp": 1792640443,
           "source": {
             "type": "git",
-            "url": "https://github.com/ZhangGuitao/dsh-plugins",
+            "url": "https://github.com/zhangguitao666/dsh-plugins",
             "commit": "c8754d1f467bbc65c1ccb4b8c717ba3a8df0aa26",
             "path": "dsh-plugin-meeting-minutes"
           },

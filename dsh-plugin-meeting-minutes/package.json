@@ -36,8 +36,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ZhangGuitao/dsh-plugins.git",
+    "url": "git+https://github.com/zhangguitao666/dsh-plugins.git",
     "directory": "dsh-plugin-meeting-minutes"
   },
-  "homepage": "https://github.com/ZhangGuitao/dsh-plugins/tree/main/dsh-plugin-meeting-minutes"
+  "homepage": "https://github.com/zhangguitao666/dsh-plugins/tree/main/dsh-plugin-meeting-minutes"
 }

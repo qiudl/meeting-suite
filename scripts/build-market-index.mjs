@@ -4,7 +4,7 @@
  *
  * Usage:
  *   node scripts/build-market-index.mjs \
- *     --repo https://github.com/ZhangGuitao/dsh-plugins \
+ *     --repo https://github.com/zhangguitao666/dsh-plugins \
  *     --commit <40-hex-commit-that-contains-the-packages> \
  *     [--timestamp <unix-seconds>] [--out market/index.json]
  *
@@ -83,7 +83,7 @@ for (const meta of PLUGINS) {
     title: meta.title,
     description: meta.description,
     icon: `data:image/svg+xml;base64,${icon.toString('base64')}`,
-    author: 'ZhangGuitao',
+    author: 'zhangguitao666',
     homepage: `${repo}/tree/main/${meta.dir}`,
     repository: { url: repo, directory: meta.dir },
     metadata: {
@@ -104,7 +104,7 @@ for (const meta of PLUGINS) {
 
 const index = {
   format: 1,
-  title: { zh: '张桂涛的 DSH 插件', en: 'ZhangGuitao DSH Plugins' },
+  title: { zh: '张桂涛的 DSH 插件', en: 'zhangguitao666 DSH Plugins' },
   description: {
     zh: '任务日历与会议纪要：会议结束后自动留存、AI 生成可视化纪要，待办一键写入日历。',
     en: 'Task calendar and meeting minutes: automatic post-meeting ingest, AI-written visual minutes, confirmed action items written to the calendar.',
