@@ -24,6 +24,7 @@ import { createAsr } from './asr.js'
 import { createSummarizer } from './summarize.js'
 import { createCalendar } from './calendar.js'
 import { createAutoIngest } from './autoingest.js'
+import { registerMeetingSkill } from './skill.js'
 
 /** Loader-facing plugin name. */
 export const name = 'meeting-minutes'
@@ -51,6 +52,7 @@ export function apply(ctx) {
       for (const dispose of disposers) dispose()
     }
   }, 'meeting-minutes: agent tools')
+  ctx.effect(() => registerMeetingSkill(ctx), 'meeting-minutes: companion skill')
 
   store.load().then(
     (document) => {
