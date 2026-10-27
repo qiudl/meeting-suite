@@ -127,7 +127,7 @@ export class MeetingStore {
   }
 
   /** Remember one ingested source file so it is never imported twice. */
-  async markAutoIngested(key, info) {
+  async markAutoIngested(key, info, options = {}) {
     await this.update((doc) => {
       const auto = doc.autoIngest
       auto.ingested[key] = {
@@ -136,7 +136,8 @@ export class MeetingStore {
         at: new Date().toISOString(),
         path: String(info.path ?? ''),
       }
-      auto.importedCount = Number(auto.importedCount) + 1
+      // A silent duplicate skip remembers the source without inflating the count.
+      if (options.count !== false) auto.importedCount = Number(auto.importedCount) + 1
       delete auto.failures[key]
       // Keep the bookkeeping bounded; the newest entries win.
       const keys = Object.keys(auto.ingested)
@@ -183,6 +184,13 @@ export class MeetingStore {
     if (exact.length === 1) return exact[0]
     const partial = this.#doc.meetings.filter((meeting) => meeting.title.toLowerCase().includes(lowered))
     return partial.length === 1 ? partial[0] : null
+  }
+
+  /** Find the meeting that already holds this audio fingerprint, or null. */
+  findByAudioSha256(sha256) {
+    const needle = typeof sha256 === 'string' ? sha256.trim().toLowerCase() : ''
+    if (needle === '') return null
+    return this.#doc.meetings.find((meeting) => meeting.audioSha256 === needle) ?? null
   }
 
   /** Persist the document through temp-file + rename. */

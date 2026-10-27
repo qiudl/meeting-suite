@@ -3463,6 +3463,14 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
         meeting.transcriptSeconds > 0
           ? h(MetaChip, { key: 'duration', icon: 'clock', label: `时长 ${formatDuration(meeting.transcriptSeconds)}` })
           : null,
+        meeting.audioPath
+          ? h(MetaChip, {
+            key: 'audio',
+            icon: 'folder',
+            label: `录音副本${meeting.audioPrunedAt ? '（已清理）' : ''}${meeting.audioError ? ' · 转写失败' : ''}`,
+            title: meeting.audioPath,
+          })
+          : null,
         h(MetaChip, { key: 'chars', icon: 'list', label: formatChars(meeting.transcriptChars ?? (meeting.transcript ?? '').length) }),
         summary?.generatedAt
           ? h(MetaChip, { key: 'generated', icon: 'sparkle', label: `生成于 ${formatStamp(summary.generatedAt)}` })

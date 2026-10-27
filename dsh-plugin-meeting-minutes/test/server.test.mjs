@@ -33,6 +33,9 @@ const SUMMARY_INPUT = {
 /** Build one server + deps pair sharing one temporary store. */
 async function setup() {
   const dir = await mkdtemp(join(tmpdir(), 'meeting-server-test-'))
+  // Keep every local write (store, exports, retained audio) inside the temp dir.
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = dir
   const store = new MeetingStore({ file: join(dir, 'meeting-minutes.json') })
   const calls = { transcribe: [], pushed: [] }
   const asr = {
@@ -46,6 +49,9 @@ async function setup() {
     }),
     transcribeWav: async (bytes) => {
       calls.transcribe.push(bytes.length)
+      // One-byte payloads stand in for a corrupt recording: ASR fails after the
+      // audio copy has already been retained.
+      if (bytes.length === 1) throw new Error('识别失败：音频损坏')
       return { text: '这是转写文本', audioSeconds: 12.5, inferenceSeconds: 1.5 }
     },
   }
@@ -124,6 +130,8 @@ async function setup() {
     dispose()
     await new Promise((resolve) => server.close(resolve))
     await rm(dir, { recursive: true, force: true })
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
   }
 
   return { call, close, calls, store }
@@ -176,17 +184,92 @@ test('会议增改查删与转写追加', async () => {
     assert.equal(transcribed.payload.transcriptSeconds, 12.5)
     assert.equal(transcribed.payload.transcript, '开头\n追加\n这是转写文本')
     assert.deepEqual(context.calls.transcribe, [Buffer.byteLength('fake-wav-bytes')])
+    // The blob was retained and fingerprinted before ASR ran.
+    assert.match(transcribed.payload.audio.path, /^meeting-minutes\/audio\/.+\.wav$/)
+    assert.match(transcribed.payload.audio.sha256, /^[a-f0-9]{64}$/)
+    assert.equal(transcribed.payload.audio.bytes, Buffer.byteLength('fake-wav-bytes'))
+    assert.equal(transcribed.payload.duplicate, null)
 
     const single = await context.call(`/meetings/${id}`)
     assert.equal(single.payload.meeting.title, '周例会（改）')
+    assert.equal(single.payload.meeting.audioPath, transcribed.payload.audio.path)
+    assert.equal(single.payload.meeting.audioSha256, transcribed.payload.audio.sha256)
+    assert.equal(single.payload.meeting.audioSeconds, 12.5)
+
+    // Same bytes on another meeting: prompt, but never block the write.
+    const second = await context.call('/meetings', { method: 'POST', body: { title: '同一录音再传一次' } })
+    const secondId = second.payload.meeting.id
+    const repeated = await context.call(`/meetings/${secondId}/transcribe`, {
+      method: 'POST',
+      raw: Buffer.from('fake-wav-bytes'),
+    })
+    assert.equal(repeated.status, 200)
+    assert.deepEqual(repeated.payload.duplicate, { id, title: '周例会（改）' })
+    const secondMeeting = await context.call(`/meetings/${secondId}`)
+    assert.equal(secondMeeting.payload.meeting.transcript, '这是转写文本')
+
+    // Retry from the retained copy needs no upload at all.
+    const retried = await context.call(`/meetings/${id}/transcribe?fromStored=1`, { method: 'POST', raw: Buffer.alloc(0) })
+    assert.equal(retried.status, 200)
+    assert.equal(retried.payload.transcriptSeconds, 25)
+
+    // Provenance fields are writable through PATCH (pin/unpin, clear an error).
+    const pinned = await context.call(`/meetings/${id}`, { method: 'PATCH', body: { audioPinned: true } })
+    assert.equal(pinned.payload.meeting.audioPinned, true)
+    assert.equal(pinned.payload.meeting.audioPath, transcribed.payload.audio.path)
+
     const state = await context.call('/state')
-    assert.equal(state.payload.meetings.length, 1)
-    assert.equal(state.payload.meetings[0].transcriptChars, 12)
+    assert.equal(state.payload.meetings.length, 2)
+    const projected = state.payload.meetings.find((meeting) => meeting.id === id)
+    assert.equal(projected.transcriptChars >= 12, true)
+    assert.equal(projected.hasAudio, true)
+    assert.equal(state.payload.meetings.some((meeting) => meeting.hasAudio === true), true)
 
     const deleted = await context.call(`/meetings/${id}`, { method: 'DELETE' })
     assert.equal(deleted.status, 200)
     const missing = await context.call(`/meetings/${id}`)
     assert.equal(missing.status, 404)
+  } finally {
+    await context.close()
+  }
+})
+
+test('转写失败仍保留音频副本并落库失败原因', async () => {
+  const context = await setup()
+  try {
+    const created = await context.call('/meetings', { method: 'POST', body: { title: '坏录音会' } })
+    const id = created.payload.meeting.id
+    const failed = await context.call(`/meetings/${id}/transcribe`, { method: 'POST', raw: Buffer.from('x') })
+    assert.equal(failed.status, 400)
+    assert.match(failed.payload.error, /识别失败：音频损坏/)
+    assert.match(failed.payload.error, /音频副本已保留/)
+    assert.match(failed.payload.audioPath, /^meeting-minutes\/audio\/.+\.wav$/)
+
+    const meeting = await context.call(`/meetings/${id}`)
+    assert.equal(meeting.payload.meeting.audioPath, failed.payload.audioPath)
+    assert.equal(meeting.payload.meeting.audioError, '识别失败：音频损坏')
+    assert.equal(meeting.payload.meeting.transcript, '')
+
+    // The retained copy is on disk and can be retried without a re-upload.
+    const retried = await context.call(`/meetings/${id}/transcribe?fromStored=1`, { method: 'POST', raw: Buffer.alloc(0) })
+    assert.equal(retried.status, 400)
+    assert.equal(context.calls.transcribe.includes(1), true)
+  } finally {
+    await context.close()
+  }
+})
+
+test('导出后写入 exportedAt，作为保留策略的删除优先级依据', async () => {
+  const context = await setup()
+  try {
+    const created = await context.call('/meetings', { method: 'POST', body: { title: '导出时间会', transcript: '内容' } })
+    const id = created.payload.meeting.id
+    const before = await context.call(`/meetings/${id}`)
+    assert.equal(before.payload.meeting.exportedAt, '')
+    const exported = await context.call(`/meetings/${id}/export?format=md`)
+    assert.equal(exported.status, 200)
+    const after = await context.call(`/meetings/${id}`)
+    assert.match(after.payload.meeting.exportedAt, /^\d{4}-\d{2}-\d{2}T/)
   } finally {
     await context.close()
   }
