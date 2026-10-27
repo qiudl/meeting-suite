@@ -458,3 +458,46 @@ test('实时录音切片只暂存，停录合并为一份整场录音', async ()
     await context.close()
   }
 })
+
+test('手工编辑转写：原文保留、计数累加、追加不算修订、导出标注', async () => {
+  const context = await setup()
+  try {
+    const created = await context.call('/meetings', { method: 'POST', body: { title: '手工编辑会', transcript: '原始识别的错别字' } })
+    const id = created.payload.meeting.id
+    assert.equal(created.payload.meeting.transcriptRaw, '原始识别的错别字')
+    assert.equal(created.payload.meeting.transcriptEdits, 0)
+
+    const edited = await context.call(`/meetings/${id}`, { method: 'PATCH', body: { transcript: '修正后的文本' } })
+    assert.equal(edited.payload.meeting.transcript, '修正后的文本')
+    assert.equal(edited.payload.meeting.transcriptRaw, '原始识别的错别字')
+    assert.equal(edited.payload.meeting.transcriptEdits, 1)
+    assert.match(edited.payload.meeting.transcriptEditedAt, /^\d{4}-\d{2}-\d{2}T/)
+
+    const again = await context.call(`/meetings/${id}`, { method: 'PATCH', body: { transcript: '再修一次' } })
+    assert.equal(again.payload.meeting.transcriptEdits, 2)
+    assert.equal(again.payload.meeting.transcriptRaw, '原始识别的错别字')
+
+    // The import path (appendTranscript) is not a manual edit.
+    const appended = await context.call(`/meetings/${id}`, { method: 'PATCH', body: { appendTranscript: true, transcript: '追加段' } })
+    assert.equal(appended.payload.meeting.transcriptEdits, 2)
+    assert.equal(appended.payload.meeting.transcript, '再修一次\n追加段')
+
+    const state = await context.call('/state')
+    assert.equal(state.payload.meetings.find((meeting) => meeting.id === id).transcriptEdits, 2)
+
+    const md = await context.call(`/meetings/${id}/export?format=md`)
+    assert.ok(md.payload.content.includes('- 转写：经人工修订（2 次）'))
+    assert.ok(md.payload.content.includes('再修一次'))
+    const html = await context.call(`/meetings/${id}/export?format=html`)
+    assert.ok(html.payload.content.includes('经人工修订（2 次）'))
+
+    // Re-summarizing uses the edited text, and the audio sha256 is untouched.
+    const summarized = await context.call(`/meetings/${id}/summarize`, { method: 'POST', body: {} })
+    assert.equal(summarized.status, 200)
+    const meeting = await context.call(`/meetings/${id}`)
+    assert.equal(meeting.payload.meeting.transcript, '再修一次\n追加段')
+    assert.equal(meeting.payload.meeting.transcriptRaw, '原始识别的错别字')
+  } finally {
+    await context.close()
+  }
+})

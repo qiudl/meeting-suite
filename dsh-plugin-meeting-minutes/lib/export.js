@@ -58,6 +58,7 @@ export function buildMarkdown(meeting) {
     `- 来源：${meeting.sourceType === 'recording' ? '录音转写' : meeting.sourceType === 'import' ? '导入记录' : '文本导入'}`,
     meeting.audioPath === '' ? '' : `- 录音来源：${audioSourceLabel(meeting)}`,
     meeting.transcriptSeconds > 0 ? `- 录音时长：${formatDuration(meeting.transcriptSeconds)}` : '',
+    meeting.transcriptEdits > 0 ? `- 转写：经人工修订（${meeting.transcriptEdits} 次）` : '',
     `- 导出时间：${formatMoment(new Date())}`,
     '',
   ].filter((line) => line !== '')
@@ -186,6 +187,7 @@ export function buildHtml(meeting) {
     ['来源', meeting.sourceType === 'recording' ? '录音转写' : meeting.sourceType === 'import' ? '导入记录' : '文本导入'],
     meeting.audioPath === '' ? null : ['录音来源', audioSourceLabel(meeting)],
     meeting.transcriptSeconds > 0 ? ['录音时长', formatDuration(meeting.transcriptSeconds)] : null,
+    meeting.transcriptEdits > 0 ? ['转写', `经人工修订（${meeting.transcriptEdits} 次）`] : null,
     ['待办', progress.total === 0 ? '无' : `${progress.pushed}/${progress.total} 已写入日历`],
   ].filter((entry) => entry !== null)
 

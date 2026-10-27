@@ -25,6 +25,7 @@ const WRITABLE_FIELDS = [
   'title', 'date', 'attendees', 'transcript', 'notes', 'sourceType', 'transcriptSeconds',
   'audioPath', 'audioSha256', 'audioBytes', 'audioSeconds', 'audioOriginalName',
   'audioPrunedAt', 'audioPinned', 'audioError', 'exportedAt',
+  'transcriptRaw', 'transcriptEditedAt', 'transcriptEdits',
 ]
 
 /** Audio provenance fields that may be written when a meeting is created. */
@@ -227,15 +228,20 @@ export function registerRoutes(ctx, deps) {
           return
         }
         if (method === 'PATCH' || method === 'POST') {
-          requireMeeting(store, id)
+          const current = requireMeeting(store, id)
           const body = await readJsonBody(req)
           const patch = {}
           for (const key of WRITABLE_FIELDS) {
             if (body[key] !== undefined) patch[key] = body[key]
           }
           if (body.appendTranscript === true) {
-            const current = requireMeeting(store, id)
             patch.transcript = current.transcript === '' ? String(body.transcript ?? '') : `${current.transcript}\n${String(body.transcript ?? '')}`
+          } else if (body.transcript !== undefined && String(body.transcript) !== current.transcript) {
+            // A manual transcript edit: keep the untouched ASR text and record
+            // that the meeting was hand-corrected (exports note it).
+            patch.transcriptEdits = Number(current.transcriptEdits) + 1
+            patch.transcriptEditedAt = new Date().toISOString()
+            if (current.transcriptRaw === '') patch.transcriptRaw = current.transcript
           }
           if (Object.keys(patch).length === 0) throw new Error('没有提供任何要修改的字段')
           const updated = await store.patch(id, patch)

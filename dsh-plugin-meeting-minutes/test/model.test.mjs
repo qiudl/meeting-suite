@@ -406,3 +406,25 @@ test('导出里带「录音来源」行，无音频的老记录不出现该行',
   }, { now: NOW })
   assert.ok(buildMarkdown(pruned).includes('副本已清理（hash 保留）'))
 })
+
+test('转写修订：原文保留、修订次数与时间可往返，导出标注修订', () => {
+  const created = normalizeMeeting({ title: '修订会', transcript: '原始识别文本' }, { now: NOW })
+  assert.equal(created.transcriptRaw, '原始识别文本')
+  assert.equal(created.transcriptEdits, 0)
+  assert.equal(created.transcriptEditedAt, '')
+  assert.ok(!buildMarkdown(created).includes('经人工修订'))
+  assert.ok(!buildHtml(created).includes('经人工修订'))
+
+  const edited = normalizeMeeting({
+    transcript: '手工改过的文本',
+    transcriptEditedAt: '2026-10-21T02:00:00.000Z',
+    transcriptEdits: 1,
+  }, { now: NOW, base: created })
+  assert.equal(edited.transcript, '手工改过的文本')
+  assert.equal(edited.transcriptRaw, '原始识别文本')
+  assert.equal(edited.transcriptEdits, 1)
+  assert.equal(edited.transcriptEditedAt, '2026-10-21T02:00:00.000Z')
+  assert.equal(projectMeeting(edited).transcriptEdits, 1)
+  assert.ok(buildMarkdown(edited).includes('- 转写：经人工修订（1 次）'))
+  assert.ok(buildHtml(edited).includes('经人工修订（1 次）'))
+})

@@ -321,6 +321,9 @@ export class MeetingStore {
       if (meeting === undefined) throw new Error(`未找到会议：${id}`)
       if (addition !== '') {
         meeting.transcript = meeting.transcript === '' ? addition : `${meeting.transcript}\n${addition}`
+        // While nobody has hand-edited this meeting, the raw ASR text mirrors
+        // the transcript; the first manual edit freezes it.
+        if (Number(meeting.transcriptEdits) === 0) meeting.transcriptRaw = meeting.transcript
       }
       meeting.transcriptSeconds = Math.round((meeting.transcriptSeconds + Math.max(0, Number(audioSeconds) || 0)) * 10) / 10
       meeting.updatedAt = now.toISOString()

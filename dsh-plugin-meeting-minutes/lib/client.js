@@ -3819,8 +3819,25 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
 
     function TranscriptSection(props) {
       const text = String(props.transcript ?? '')
+      const meetingId = typeof props.meetingId === 'string' ? props.meetingId : ''
+      const edits = Number(props.edits) || 0
       const [open, setOpen] = useState(false)
       const [copied, setCopied] = useState(false)
+      // `draft === null` means read-only; a string means the editor is open.
+      const [draft, setDraft] = useState(null)
+      const [saving, setSaving] = useState(false)
+      const dirty = draft !== null && draft !== text
+      // Hand-corrected ASR text must not be lost when the page is closed or the
+      // panel switches. Save goes through the existing PATCH route.
+      useEffect(() => {
+        if (!dirty) return undefined
+        const handler = (event) => {
+          event.preventDefault()
+          event.returnValue = ''
+        }
+        window.addEventListener('beforeunload', handler)
+        return () => window.removeEventListener('beforeunload', handler)
+      }, [dirty])
       const copy = async () => {
         try {
           await copyText(text)
@@ -3831,9 +3848,35 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
           reportError(caught, '复制失败')
         }
       }
+      const startEdit = () => {
+        setDraft(text)
+        setOpen(true)
+      }
+      const cancelEdit = () => {
+        if (dirty && !window.confirm('转写有未保存的修改，确定放弃？')) return
+        setDraft(null)
+      }
+      const save = async () => {
+        if (draft === null || meetingId === '' || !dirty) return
+        setSaving(true)
+        try {
+          await patchMeeting(meetingId, { transcript: draft })
+          setDraft(null)
+          notifySuccess('转写已保存', '导出与重新生成纪要都会使用修订后的文本')
+        } catch (caught) {
+          reportError(caught, '保存转写失败')
+        } finally {
+          setSaving(false)
+        }
+      }
+      const toggle = () => {
+        if (dirty && !window.confirm('转写有未保存的修改，确定收起？')) return
+        setOpen((previous) => !previous)
+      }
+      const sub = `${formatChars(text.length)}${edits > 0 ? ` · 已修订 ${edits} 次` : ''}`
       return h(
         Section,
-        { title: '原始转写', icon: 'doc', sub: formatChars(text.length) },
+        { title: '原始转写', icon: 'doc', sub },
         h(
           'div',
           { className: 'dsm-transcript' },
@@ -3843,9 +3886,31 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
             h('button', {
               type: 'button',
               className: 'dsm-transcript-toggle',
-              onClick: () => setOpen((previous) => !previous),
-            }, h(Icon, { name: 'chevron', size: 12, className: open ? 'dsm-chevron--open' : undefined }), h('span', null, open ? '收起转写' : '展开转写'), h('span', { className: 'dsm-transcript-meta' }, formatChars(text.length))),
+              onClick: toggle,
+            }, h(Icon, { name: 'chevron', size: 12, className: open ? 'dsm-chevron--open' : undefined }), h('span', null, open ? '收起转写' : '展开转写'), h('span', { className: 'dsm-transcript-meta' }, sub)),
             h('span', { className: 'dsm-spacer' }),
+            draft === null
+              ? h('button', {
+                type: 'button',
+                className: 'dsm-btn dsm-btn--sm',
+                onClick: startEdit,
+                disabled: text === '' || meetingId === '',
+                title: '手工修订转写里的错别字；原文保留在记录里',
+              }, h(Icon, { name: 'edit', size: 11 }), h('span', null, '编辑转写'))
+              : [
+                h('button', {
+                  type: 'button',
+                  className: 'dsm-btn dsm-btn--sm dsm-btn--primary',
+                  onClick: () => { void save() },
+                  disabled: saving || !dirty,
+                }, h('span', null, saving ? '保存中…' : '保存修订')),
+                h('button', {
+                  type: 'button',
+                  className: 'dsm-btn dsm-btn--sm',
+                  onClick: cancelEdit,
+                  disabled: saving,
+                }, h('span', null, '取消')),
+              ],
             h('button', {
               type: 'button',
               className: 'dsm-btn dsm-btn--sm',
@@ -3853,8 +3918,19 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
               disabled: text === '',
             }, h(Icon, { name: 'copy', size: 11 }), h('span', null, copied ? '已复制' : '复制全文')),
           ),
+          dirty
+            ? h('div', { className: 'dsm-transcript-meta', style: { padding: '0 12px 8px' } }, '有未保存的修改：保存后才会用于导出和重新生成纪要')
+            : null,
           open
-            ? h('pre', { className: 'dsm-transcript-body' }, text === '' ? '（暂无转写文本）' : text)
+            ? (draft === null
+              ? h('pre', { className: 'dsm-transcript-body' }, text === '' ? '（暂无转写文本）' : text)
+              : h('textarea', {
+                className: 'dsm-input dsm-textarea dsm-transcript-body',
+                style: { borderRadius: 0, border: 0, minHeight: 220 },
+                value: draft,
+                onChange: (event) => setDraft(event.target.value),
+                spellCheck: false,
+              }))
             : null,
         ),
       )
@@ -4043,7 +4119,11 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
           )
           : null,
         hasTranscript
-          ? h(TranscriptSection, { transcript: meeting.transcript })
+          ? h(TranscriptSection, {
+            transcript: meeting.transcript,
+            meetingId: meeting.id,
+            edits: meeting.transcriptEdits,
+          })
           : null,
         attendees.length === 0
           ? null

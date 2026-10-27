@@ -54,6 +54,7 @@ export function describeMeeting(meeting, options = {}) {
   const audioLabel = audioSourceLabel(meeting)
   if (audioLabel !== '') lines.push(`录音来源：${audioLabel}`)
   if (meeting.audioError !== '') lines.push(`转写失败原因：${meeting.audioError}（可对同一会议重新转写）`)
+  if (meeting.transcriptEdits > 0) lines.push(`转写：经人工修订 ${meeting.transcriptEdits} 次（原文已保留，导出会标注）`)
   const summary = meeting.summary
   if (summary === null) {
     lines.push('（还没有生成纪要）')

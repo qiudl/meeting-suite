@@ -328,6 +328,17 @@ export function normalizeMeeting(raw, options = {}) {
   const audioPinned = input.audioPinned === true || (input.audioPinned === undefined && base.audioPinned === true)
   const audioError = capText(input.audioError === undefined ? base.audioError : input.audioError, 400)
   const exportedAt = asText(input.exportedAt === undefined ? base.exportedAt : input.exportedAt)
+  // Transcript revision: `transcriptRaw` keeps the untouched ASR output so a
+  // hand-corrected `transcript` never loses the original wording; exports and
+  // re-summaries use `transcript`, the audio sha256 is unaffected either way.
+  const transcriptRawInput = input.transcriptRaw === undefined ? base.transcriptRaw : input.transcriptRaw
+  const transcriptRaw = typeof transcriptRawInput === 'string' && transcriptRawInput !== ''
+    ? transcriptRawInput
+    : transcript
+  const transcriptEditedAt = asText(input.transcriptEditedAt === undefined ? base.transcriptEditedAt : input.transcriptEditedAt)
+  const transcriptEdits = Math.trunc(clampNumber(
+    input.transcriptEdits === undefined ? base.transcriptEdits : input.transcriptEdits, 0, 0, 100000,
+  ))
   const autoImported = input.autoImported === true || (input.autoImported === undefined && base.autoImported === true)
   const summaryInput = input.summary === undefined ? base.summary ?? null : input.summary
   const summary = summaryInput === null
@@ -355,6 +366,9 @@ export function normalizeMeeting(raw, options = {}) {
     audioPinned,
     audioError,
     exportedAt,
+    transcriptRaw,
+    transcriptEditedAt,
+    transcriptEdits,
     notes,
     autoImported,
     summary,
@@ -378,6 +392,7 @@ export function projectMeeting(meeting) {
     pendingTodoCount: todos.filter((todo) => todo.calendarTaskId === null).length,
     transcriptChars: meeting.transcript.length,
     transcriptSeconds: meeting.transcriptSeconds,
+    transcriptEdits: meeting.transcriptEdits,
     hasAudio: meeting.audioPath !== '',
     exportedAt: meeting.exportedAt,
     autoImported: meeting.autoImported === true,
