@@ -1237,11 +1237,25 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       return chunks
     }
 
-    async function postTranscription(meetingId, wavBlob) {
+    /**
+     * Query string for one transcribe POST.
+     * Live slices carry `live=1&index=N` so the host keeps them as temporary
+     * parts and merges the whole meeting once on stop (`/audio/finalize`).
+     */
+    function transcribeQuery(options = {}) {
+      const query = new URLSearchParams({ language: 'zh' })
+      if (options?.live === true) {
+        query.set('live', '1')
+        query.set('index', String(Math.max(0, Math.trunc(Number(options.index) || 0))))
+      }
+      return query.toString()
+    }
+
+    async function postTranscription(meetingId, wavBlob, options = {}) {
       let response
       try {
         response = await fetch(
-          `${API}/meetings/${encodeURIComponent(meetingId)}/transcribe?language=zh`,
+          `${API}/meetings/${encodeURIComponent(meetingId)}/transcribe?${transcribeQuery(options)}`,
           {
             method: 'POST',
             headers: { 'content-type': 'audio/wav' },
@@ -1731,7 +1745,10 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       const session = liveEngine.sessionId
       try {
         if (meetingId === null) throw new Error('录制的会议不存在，无法转写')
-        const payload = await postTranscription(meetingId, encodePcm16Wav(samples))
+        const payload = await postTranscription(meetingId, encodePcm16Wav(samples), {
+          live: true,
+          index: liveEngine.sentChunks,
+        })
         if (liveEngine.sessionId === session) applyLiveChunk(payload)
       } catch (error) {
         if (liveEngine.sessionId === session) handleLiveChunkError(error)
@@ -1874,6 +1891,20 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
 
     async function finalizeLiveRecording(reason, idleOk) {
       const meetingId = snapshot.live.meetingId
+      // Merge the live slices into ONE retained copy before reading the meeting
+      // back, so the record already carries audioPath + whole-meeting sha256.
+      // A partial/errored stop still merges what was recorded.
+      if (meetingId !== null && liveEngine.sentChunks > 0) {
+        try {
+          const merged = await requestJson(`/meetings/${encodeURIComponent(meetingId)}/audio/finalize`, {
+            method: 'POST',
+            body: {},
+          })
+          if (merged.meeting) commit({ meeting: merged.meeting })
+        } catch (error) {
+          reportError(error, '整场录音合并失败')
+        }
+      }
       let meeting = null
       if (meetingId !== null) {
         try {

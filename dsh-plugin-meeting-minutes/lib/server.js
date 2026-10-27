@@ -15,7 +15,7 @@ import { readFile } from 'node:fs/promises'
 import { formatMoment, isGenericTitle, localDay, projectMeeting, todoProgress } from './model.js'
 import { sortMeetings } from './store.js'
 import { exportMeeting } from './export.js'
-import { resolveStoredAudio, storeAudio } from './audio-store.js'
+import { resolveStoredAudio, clearAudioParts, finalizeAudioParts, storeAudio, storeAudioPart } from './audio-store.js'
 
 /** Registered prefix; the client builds its URLs from the same constant. */
 export const ROUTE_PREFIX = '/dsh-meeting'
@@ -244,6 +244,8 @@ export function registerRoutes(ctx, deps) {
         }
         if (method === 'DELETE') {
           const removed = await store.remove(id)
+          // A discarded live recording leaves temporary slices behind; drop them.
+          await clearAudioParts({ meetingId: id })
           sendJson(res, removed === null ? 404 : 200, removed === null ? { ok: false, error: '未找到会议' } : { ok: true })
           return
         }
@@ -299,20 +301,32 @@ export function registerRoutes(ctx, deps) {
         }
         let audio = null
         if (!fromStored) {
+          // Live recording streams ~5 s slices only for recognition: keep the
+          // slice in the temporary session folder, never as a retained copy.
+          // The whole meeting is merged once by `/audio/finalize` on stop.
+          const live = url.searchParams.get('live') === '1'
           try {
-            audio = await storeAudio({
-              bytes,
-              sourceName: url.searchParams.get('name') ?? '',
-              date: meeting.date,
-              title: meeting.title,
-            })
-            await store.patch(id, {
-              audioPath: audio.relPath,
-              audioSha256: audio.sha256,
-              audioBytes: audio.bytes,
-              audioOriginalName: audio.fileName,
-              audioError: '',
-            })
+            if (live) {
+              await storeAudioPart({
+                meetingId: id,
+                index: url.searchParams.get('index'),
+                bytes,
+              })
+            } else {
+              audio = await storeAudio({
+                bytes,
+                sourceName: url.searchParams.get('name') ?? '',
+                date: meeting.date,
+                title: meeting.title,
+              })
+              await store.patch(id, {
+                audioPath: audio.relPath,
+                audioSha256: audio.sha256,
+                audioBytes: audio.bytes,
+                audioOriginalName: audio.fileName,
+                audioError: '',
+              })
+            }
           } catch (error) {
             logger?.warn?.(`meeting-minutes: 音频副本保存失败（${id}）：${String(error?.message ?? error)}`)
           }
@@ -348,6 +362,41 @@ export function registerRoutes(ctx, deps) {
           })
           return
         }
+      }
+
+      if (segments.length === 4 && segments[2] === 'audio' && segments[3] === 'finalize' && method === 'POST') {
+        const meeting = requireMeeting(store, id)
+        let merged
+        try {
+          merged = await finalizeAudioParts({ meetingId: id, title: meeting.title, date: meeting.date })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          sendJson(res, 400, { ok: false, error: message })
+          return
+        }
+        const holder = store.findByAudioSha256(merged.sha256)
+        const duplicate = holder === null || holder.id === id ? null : { id: holder.id, title: holder.title }
+        const updated = await store.patch(id, {
+          audioPath: merged.relPath,
+          audioSha256: merged.sha256,
+          audioBytes: merged.bytes,
+          audioSeconds: merged.seconds,
+          audioOriginalName: merged.fileName,
+          audioError: '',
+        })
+        sendJson(res, 200, {
+          ok: true,
+          meeting: updated,
+          audio: {
+            path: merged.relPath,
+            sha256: merged.sha256,
+            bytes: merged.bytes,
+            seconds: merged.seconds,
+            parts: merged.parts,
+          },
+          duplicate,
+        })
+        return
       }
 
       if (segments.length === 4 && segments[2] === 'todos' && method === 'PATCH') {

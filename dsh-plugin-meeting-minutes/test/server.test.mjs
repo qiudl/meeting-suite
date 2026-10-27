@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -17,6 +17,8 @@ import test from 'node:test'
 import { MeetingStore } from '../lib/store.js'
 import { normalizeSummary } from '../lib/model.js'
 import { registerRoutes } from '../lib/server.js'
+import { concatWavPcm16, encodeWavPcm16 } from '../lib/audio.js'
+import { resolveAudioDir, resolveAudioPartsDir, sha256Bytes } from '../lib/audio-store.js'
 
 const SUMMARY_INPUT = {
   suggestedTitle: 'Q4预算评审会',
@@ -401,6 +403,57 @@ test('参数校验：空标题/未知会议/空音频', async () => {
     const nothing = await context.call(`/meetings/${id}/transcribe`, { method: 'POST', raw: Buffer.alloc(0) })
     assert.equal(nothing.status, 400)
     assert.match(nothing.payload.error, /音频为空/)
+  } finally {
+    await context.close()
+  }
+})
+
+test('实时录音切片只暂存，停录合并为一份整场录音', async () => {
+  const context = await setup()
+  try {
+    const created = await context.call('/meetings', { method: 'POST', body: { title: '面对面会议', date: '2026-10-27' } })
+    const id = created.payload.meeting.id
+    const sliceA = encodeWavPcm16(new Int16Array(16000).fill(10))
+    const sliceB = encodeWavPcm16(new Int16Array(16000).fill(20))
+
+    const first = await context.call(`/meetings/${id}/transcribe?live=1&index=1`, { method: 'POST', raw: Buffer.from(sliceA) })
+    assert.equal(first.status, 200)
+    const second = await context.call(`/meetings/${id}/transcribe?live=1&index=2`, { method: 'POST', raw: Buffer.from(sliceB) })
+    assert.equal(second.status, 200)
+
+    // Slices are temporary parts: no retained copy exists while recording.
+    assert.deepEqual((await readdir(resolveAudioDir())).filter((name) => !name.startsWith('.')), [])
+    assert.equal((await readdir(resolveAudioPartsDir(id))).length, 2)
+    const during = await context.call(`/meetings/${id}`)
+    assert.equal(during.payload.meeting.audioPath, '')
+    assert.equal(during.payload.meeting.transcript, '这是转写文本\n这是转写文本')
+
+    const finalized = await context.call(`/meetings/${id}/audio/finalize`, { method: 'POST', body: {} })
+    assert.equal(finalized.status, 200)
+    assert.match(finalized.payload.audio.path, /^meeting-minutes\/audio\/.+\.wav$/)
+    assert.equal(finalized.payload.audio.seconds, 2)
+    assert.equal(finalized.payload.audio.parts, 2)
+    assert.equal(finalized.payload.audio.sha256, sha256Bytes(Buffer.from(concatWavPcm16([sliceA, sliceB]))))
+
+    const meeting = await context.call(`/meetings/${id}`)
+    assert.equal(meeting.payload.meeting.audioPath, finalized.payload.audio.path)
+    assert.equal(meeting.payload.meeting.audioSha256, finalized.payload.audio.sha256)
+    assert.equal(meeting.payload.meeting.audioSeconds, 2)
+    assert.equal((await readdir(resolveAudioDir())).filter((name) => !name.startsWith('.')).length, 1)
+    await assert.rejects(stat(resolveAudioPartsDir(id)), /ENOENT/)
+
+    const again = await context.call(`/meetings/${id}/audio/finalize`, { method: 'POST', body: {} })
+    assert.equal(again.status, 400)
+    assert.match(again.payload.error, /没有待合并的录音片段/)
+
+    // Deleting a half-recorded meeting clears its temporary slices too.
+    const discarded = await context.call('/meetings', { method: 'POST', body: { title: '取消的会议' } })
+    const discardedId = discarded.payload.meeting.id
+    await context.call(`/meetings/${discardedId}/transcribe?live=1&index=1`, { method: 'POST', raw: Buffer.from(sliceA) })
+    assert.equal((await readdir(resolveAudioPartsDir(discardedId))).length, 1)
+    const deleted = await context.call(`/meetings/${discardedId}`, { method: 'DELETE' })
+    assert.equal(deleted.status, 200)
+    await assert.rejects(stat(resolveAudioPartsDir(discardedId)), /ENOENT/)
   } finally {
     await context.close()
   }

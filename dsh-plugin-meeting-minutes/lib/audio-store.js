@@ -20,9 +20,10 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { concatWavPcm16, secondsOf } from './audio.js'
 import { localDay } from './model.js'
 import { resolveDshHome, resolveMeetingDataDir, safeFileName } from './export.js'
 
@@ -290,4 +291,81 @@ export async function pruneAudio(options = {}) {
     totalBytes,
     count,
   }
+}
+
+/** Sanitised per-session folder name for the live-recording slices. */
+function partsDirName(meetingId) {
+  const clean = String(meetingId ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80)
+  if (clean === '') throw new Error('会议 id 不能为空')
+  return clean
+}
+
+/**
+ * Temporary folder for one live recording's slices
+ * (`meeting-minutes/audio/.sessions/<meetingId>/`).
+ * The leading dot keeps it out of the retained-copy listing and `pruneAudio`.
+ */
+export function resolveAudioPartsDir(meetingId, home) {
+  return join(resolveAudioDir(home), '.sessions', partsDirName(meetingId))
+}
+
+/**
+ * Persist one live ASR slice.
+ *
+ * Live recording streams ~5 s slices to `/transcribe` only for recognition; the
+ * slice itself is **not** a retained copy. Keeping the raw slices lets
+ * {@link finalizeAudioParts} rebuild one full-meeting WAV at stop time, so the
+ * record holds a single `audioPath` + whole-meeting sha256 instead of hundreds
+ * of orphan fragments.
+ *
+ * @param options - `meetingId` (required), `index`, `bytes` (required), `home`.
+ * @returns `{ partPath, bytes }`.
+ */
+export async function storeAudioPart(options = {}) {
+  if (options.bytes === undefined || options.bytes === null) throw new Error('storeAudioPart 需要 bytes')
+  const buffer = Buffer.isBuffer(options.bytes) ? options.bytes : Buffer.from(options.bytes)
+  const dir = resolveAudioPartsDir(options.meetingId, options.home)
+  await mkdir(dir, { recursive: true })
+  const index = Math.max(0, Math.trunc(Number(options.index) || 0))
+  const fileName = `${String(index).padStart(6, '0')}.wav`
+  const partPath = join(dir, fileName)
+  await writeFile(partPath, buffer)
+  return { partPath, bytes: buffer.length }
+}
+
+/**
+ * Merge every slice of one live recording into a single retained copy.
+ *
+ * @param options - `meetingId` (required), `title`, `date`, `home`.
+ * @returns `{ relPath, absPath, fileName, sha256, bytes, format, existed, seconds, parts }`
+ *          where `seconds` is the whole-meeting duration.
+ * @throws when the meeting has no pending slices.
+ */
+export async function finalizeAudioParts(options = {}) {
+  const dir = resolveAudioPartsDir(options.meetingId, options.home)
+  let names
+  try {
+    names = (await readdir(dir)).filter((name) => name.endsWith('.wav')).sort()
+  } catch {
+    throw new Error('这场会议没有待合并的录音片段')
+  }
+  if (names.length === 0) throw new Error('这场会议没有待合并的录音片段')
+  const parts = []
+  for (const name of names) parts.push(await readFile(join(dir, name)))
+  const merged = concatWavPcm16(parts)
+  const audio = await storeAudio({
+    bytes: merged,
+    sourceName: '',
+    title: options.title,
+    date: options.date,
+    home: options.home,
+  })
+  const seconds = Math.round(secondsOf(merged) * 10) / 10
+  await clearAudioParts({ meetingId: options.meetingId, home: options.home })
+  return { ...audio, seconds, parts: names.length }
+}
+
+/** Drop the temporary slices (cancel, meeting delete, or after finalize). */
+export async function clearAudioParts(options = {}) {
+  await rm(resolveAudioPartsDir(options.meetingId, options.home), { recursive: true, force: true })
 }
