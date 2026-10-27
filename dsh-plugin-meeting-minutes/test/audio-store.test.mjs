@@ -7,7 +7,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, stat, utimes } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -210,5 +210,45 @@ test('未关联记录的孤儿副本超期后被清扫', async () => {
     assert.equal(result.removed[0].fileName, orphan.fileName)
     assert.equal(result.removed[0].reason, 'orphan')
     await assert.rejects(readFile(orphan.absPath), /ENOENT/)
+  })
+})
+
+test('同字节不同标题复用同一份副本，不再写第二份', async () => {
+  await withHome(async (home) => {
+    const bytes = Buffer.from('one-recording-same-bytes')
+    const first = await storeAudio({ bytes, sourceName: '/tmp/原录音.m4a', date: '2026-10-27', title: '原会议', home })
+    assert.equal(first.existed, false)
+
+    // A renamed copy of the same recording must not cost a second copy.
+    const renamed = await storeAudio({ bytes, sourceName: '/tmp/重命名后的副本.wav', date: '2026-10-27', title: '另一场会', home })
+    assert.equal(renamed.existed, true)
+    assert.equal(renamed.fileName, first.fileName)
+    assert.equal(renamed.relPath, first.relPath)
+    assert.equal(await sha256File(renamed.absPath), sha256Bytes(bytes))
+
+    // Even a different date/title resolves to the retained copy.
+    const later = await storeAudio({ bytes, sourceName: '', date: '2026-10-28', title: '隔天又传', home })
+    assert.equal(later.fileName, first.fileName)
+
+    assert.equal((await readdir(resolveAudioDir(home))).length, 1)
+  })
+})
+
+test('复用前校验完整 hash：sha8 相同的伪造文件不被信任', async () => {
+  await withHome(async (home) => {
+    const real = Buffer.from('the-real-recording-bytes')
+    const short = sha256Bytes(real).slice(0, 8)
+    const dir = resolveAudioDir(home)
+    await mkdir(dir, { recursive: true })
+    const decoyName = `2026-10-27-伪造-${short}.wav`
+    const decoy = join(dir, decoyName)
+    await writeFile(decoy, Buffer.from('tampered-not-the-same-bytes'))
+
+    const stored = await storeAudio({ bytes: real, sourceName: '/tmp/real.wav', date: '2026-10-27', title: '真录音', home })
+    assert.equal(stored.existed, false)
+    assert.notEqual(stored.fileName, decoyName)
+    assert.equal(await sha256File(stored.absPath), sha256Bytes(real))
+    // The decoy was neither trusted nor overwritten.
+    assert.equal(await readFile(decoy, 'utf8'), 'tampered-not-the-same-bytes')
   })
 })

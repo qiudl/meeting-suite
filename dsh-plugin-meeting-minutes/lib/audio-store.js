@@ -88,6 +88,47 @@ export function audioExtension(sourceName) {
 }
 
 /**
+ * Find an already-retained copy whose bytes are identical.
+ *
+ * Scans the audio folder for any supported extension named `-<sha8><ext>` and
+ * re-reads the candidate to confirm the **full** digest: the 8-character suffix
+ * alone is not proof, a colliding or hand-written name must not be trusted.
+ *
+ * @returns the same shape as `storeAudio`, or `null` when no copy matches.
+ */
+async function findStoredByHash(dir, sha256) {
+  const short = sha256.slice(0, 8)
+  let names
+  try {
+    names = await readdir(dir)
+  } catch {
+    return null
+  }
+  for (const name of names) {
+    if (name.startsWith('.')) continue
+    const dot = name.lastIndexOf('.')
+    if (dot <= 0) continue
+    const ext = name.slice(dot).toLowerCase()
+    if (!KEEP_EXTENSIONS.has(ext) || !name.endsWith(`-${short}${ext}`)) continue
+    const absPath = join(dir, name)
+    try {
+      if (await sha256File(absPath) !== sha256) continue
+    } catch {
+      continue
+    }
+    return {
+      relPath: `meeting-minutes/audio/${name}`,
+      absPath,
+      fileName: name,
+      sha256,
+      format: ext.slice(1),
+      existed: true,
+    }
+  }
+  return null
+}
+
+/**
  * Persist one recording copy and fingerprint its bytes.
  *
  * @param options - `bytes` (required), `sourceName`, `title`, `date`, `home`.
@@ -103,6 +144,10 @@ export async function storeAudio(options = {}) {
   const ext = audioExtension(options.sourceName)
   const dir = resolveAudioDir(options.home)
   await mkdir(dir, { recursive: true })
+  // The same recording may arrive again under another title (a copied or renamed
+  // file): reuse the retained copy instead of writing the bytes a second time.
+  const reused = await findStoredByHash(dir, sha256)
+  if (reused !== null) return { ...reused, bytes: buffer.length }
   const fileName = `${date}-${title}-${sha256.slice(0, 8)}${ext}`
   const absPath = join(dir, fileName)
   const relPath = `meeting-minutes/audio/${fileName}`
