@@ -25,6 +25,7 @@ import {
   storeAudio,
   verifyStoredAudio,
 } from '../lib/audio-store.js'
+import { assertRealAudioUnchanged } from './support/real-audio-guard.mjs'
 
 /** Run one test body against a throwaway `$DSH_HOME` equivalent. */
 async function withHome(run) {
@@ -251,4 +252,9 @@ test('复用前校验完整 hash：sha8 相同的伪造文件不被信任', asyn
     // The decoy was neither trusted nor overwritten.
     assert.equal(await readFile(decoy, 'utf8'), 'tampered-not-the-same-bytes')
   })
+})
+
+test('单测不写入真实音频目录', async () => {
+  // Everything above injects `home`; this fails loudly if any test forgets.
+  assertRealAudioUnchanged()
 })
