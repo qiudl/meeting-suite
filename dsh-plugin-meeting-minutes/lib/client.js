@@ -4366,15 +4366,82 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       )
     }
 
+    /**
+     * Bar for a recording started outside this page (agent / CLI through the
+     * JSON API). The panel owns its own capture, so this bar only renders when
+     * there is no local live session but the host reports an active one.
+     */
+    function AgentRecordingBar() {
+      const state = useSnapshot()
+      const local = state.live
+      if (local && liveIsActive(local)) return null
+      const entries = Array.isArray(state.data?.activeRecording) ? state.data.activeRecording : []
+      if (entries.length === 0) return null
+      const entry = entries[0]
+      const started = Date.parse(entry.startedAt)
+      const elapsed = Number.isFinite(started) ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0
+      return h(
+        'div',
+        { className: 'dsm-livebar', role: 'status', 'aria-live': 'polite' },
+        h('span', { className: 'dsm-livebar-dot' }),
+        h(
+          'div',
+          { className: 'dsm-livebar-main' },
+          h(
+            'div',
+            { className: 'dsm-livebar-title' },
+            h('span', null, '正在录音'),
+            h('span', { className: 'dsm-livebar-timer' }, formatTimer(elapsed)),
+            entry.title !== '' ? h('span', { className: 'dsm-hint', style: { fontWeight: 400 } }, entry.title) : null,
+          ),
+          h('div', { className: 'dsm-livebar-meta' }, `由 agent 启动 · 已收 ${entry.slices} 段音频`),
+        ),
+        h(
+          'div',
+          { className: 'dsm-livebar-actions' },
+          h('button', {
+            type: 'button',
+            className: 'dsm-btn dsm-btn--sm',
+            onClick: openMeetingPanel,
+          }, h(Icon, { name: 'doc', size: 11 }), h('span', null, '打开纪要')),
+        ),
+      )
+    }
+
     function ToastOverlay() {
       const state = useSnapshot()
       useEffect(() => {
         ensureStyle()
       }, [])
+      // Poll just enough of `/state` to surface an agent-started recording on the
+      // page even when the panel was never opened. Commit only on change.
+      useEffect(() => {
+        let cancelled = false
+        const tick = async () => {
+          try {
+            const data = await requestJson('/state')
+            if (cancelled) return
+            const next = Array.isArray(data.activeRecording) ? data.activeRecording : []
+            const current = Array.isArray(snapshot.data?.activeRecording) ? snapshot.data.activeRecording : []
+            if (JSON.stringify(next) !== JSON.stringify(current)) {
+              commit({ data: { ...(snapshot.data ?? {}), activeRecording: next } })
+            }
+          } catch {
+            // transient host hiccups are not worth surfacing
+          }
+        }
+        void tick()
+        const timer = setInterval(() => { void tick() }, 3000)
+        return () => {
+          cancelled = true
+          clearInterval(timer)
+        }
+      }, [])
       return h(
         React.Fragment,
         null,
         h(LiveRecordingBar, null),
+        h(AgentRecordingBar, null),
         state.toasts.length === 0
           ? null
           : h(

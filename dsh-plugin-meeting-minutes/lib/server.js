@@ -16,6 +16,7 @@ import { formatMoment, isGenericTitle, localDay, projectMeeting, todoProgress } 
 import { sortMeetings } from './store.js'
 import { exportMeeting } from './export.js'
 import { resolveStoredAudio, clearAudioParts, finalizeAudioParts, storeAudio, storeAudioPart } from './audio-store.js'
+import { clearLiveSession, listLiveSessions, touchLiveSession } from './live-sessions.js'
 
 /** Registered prefix; the client builds its URLs from the same constant. */
 export const ROUTE_PREFIX = '/dsh-meeting'
@@ -105,6 +106,7 @@ export async function buildState(deps) {
     today: localDay(),
     clock: formatMoment(),
     autoIngest: auto,
+    activeRecording: listLiveSessions(),
     config: {
       llm: summarizer.describeRoute(),
       asr: {
@@ -252,6 +254,7 @@ export function registerRoutes(ctx, deps) {
           const removed = await store.remove(id)
           // A discarded live recording leaves temporary slices behind; drop them.
           await clearAudioParts({ meetingId: id })
+          clearLiveSession(id)
           sendJson(res, removed === null ? 404 : 200, removed === null ? { ok: false, error: '未找到会议' } : { ok: true })
           return
         }
@@ -318,6 +321,7 @@ export function registerRoutes(ctx, deps) {
                 index: url.searchParams.get('index'),
                 bytes,
               })
+              touchLiveSession({ meetingId: id, title: meeting.title, date: meeting.date })
             } else {
               audio = await storeAudio({
                 bytes,
@@ -375,6 +379,7 @@ export function registerRoutes(ctx, deps) {
         let merged
         try {
           merged = await finalizeAudioParts({ meetingId: id, title: meeting.title, date: meeting.date })
+          clearLiveSession(id)
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           sendJson(res, 400, { ok: false, error: message })
