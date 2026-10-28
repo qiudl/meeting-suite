@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-meeting-minutes",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "private": false,
   "description": "会议纪要：录音转文字、腾讯会议纪要导入、AI 总结、可视化纪要与待办写入任务日历",
   "type": "module",

@@ -296,7 +296,8 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
 .dsm-icon-dot{position:absolute;top:-3px;right:-4px;min-width:12px;height:12px;border-radius:999px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);font-size:9px;line-height:12px;text-align:center;padding:0 3px;font-weight:600}
 .dsm-dialog-text{font-size:12.5px;line-height:20px;color:var(--dsw-alias-label-secondary);margin:0;word-break:break-word}
 .dsm-kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;border:1px solid var(--dsw-alias-border-l1);border-radius:4px;padding:0 3px;color:var(--dsw-alias-label-secondary)}
-.dsm-livebar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:210;display:flex;align-items:center;gap:10px;max-width:min(780px,94vw);box-sizing:border-box;padding:8px 10px 8px 12px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-toast-bg);color:var(--dsw-alias-toast-label);box-shadow:0 12px 34px color-mix(in srgb,var(--dsw-alias-label-primary) 24%,transparent)}
+.dsm-livebar{position:fixed;cursor:grab;touch-action:none;user-select:none;left:50%;bottom:18px;transform:translateX(-50%);z-index:210;display:flex;align-items:center;gap:10px;max-width:min(780px,94vw);box-sizing:border-box;padding:8px 10px 8px 12px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-toast-bg);color:var(--dsw-alias-toast-label);box-shadow:0 12px 34px color-mix(in srgb,var(--dsw-alias-label-primary) 24%,transparent)}
+.dsm-livebar[data-dsm-dragging]{cursor:grabbing}
 .dsm-livebar--done{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 60%,var(--dsw-alias-border-l2))}
 .dsm-livebar-check{width:18px;height:18px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 22%,transparent);color:var(--dsw-alias-state-success-primary);font-size:11px;font-weight:700}
 .dsm-livebar-dot{width:9px;height:9px;border-radius:50%;background:var(--dsw-alias-state-error-primary);animation:dsm-pulse 1.2s ease-in-out infinite;flex:0 0 auto}
@@ -4386,6 +4387,18 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       const entry = entries[0]
       const started = Date.parse(entry.startedAt)
       const elapsed = Number.isFinite(started) ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0
+      const stopping = Array.isArray(state.data?.stopRequested) && state.data.stopRequested.includes(entry.meetingId)
+      // The recorder polls `/state`; this only asks it to finish gracefully.
+      const askStop = async () => {
+        try {
+          await requestJson(`/meetings/${encodeURIComponent(entry.meetingId)}/audio/stop`, { method: 'POST' })
+          const requested = Array.isArray(snapshot.data?.stopRequested) ? snapshot.data.stopRequested : []
+          commit({ data: { ...(snapshot.data ?? {}), stopRequested: [...new Set([...requested, entry.meetingId])] } })
+          notify('info', '正在停止录音', '录音端会把最后几段发完再合并整场，请稍候')
+        } catch (error) {
+          reportError(error, '停止录音失败')
+        }
+      }
       return h(
         'div',
         { className: 'dsm-livebar', role: 'status', 'aria-live': 'polite' },
@@ -4408,10 +4421,135 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
           h('button', {
             type: 'button',
             className: 'dsm-btn dsm-btn--sm',
+            onClick: () => { void askStop() },
+            disabled: stopping,
+            title: '让录音端停止并合并整场音频',
+          }, h('span', null, stopping ? '停止中…' : '停止录音')),
+          h('button', {
+            type: 'button',
+            className: 'dsm-btn dsm-btn--sm',
             onClick: openMeetingPanel,
           }, h(Icon, { name: 'doc', size: 11 }), h('span', null, '打开纪要')),
         ),
       )
+    }
+
+    // ──────────────────── floating bar drag (remembered) ─────────────────
+    // The live/ended bars are fixed at the bottom centre; a user who moves them
+    // once expects them to stay there, so the spot is remembered per browser.
+
+    const LIVEBAR_POS_KEY = 'dsh.meeting.livebar.position'
+
+    function readLivebarPosition() {
+      try {
+        const raw = window.localStorage.getItem(LIVEBAR_POS_KEY)
+        if (raw === null) return null
+        const parsed = JSON.parse(raw)
+        if (!Number.isFinite(parsed?.left) || !Number.isFinite(parsed?.top)) return null
+        return { left: parsed.left, top: parsed.top }
+      } catch {
+        return null
+      }
+    }
+
+    function saveLivebarPosition(position) {
+      try {
+        window.localStorage.setItem(LIVEBAR_POS_KEY, JSON.stringify(position))
+      } catch {
+        // private mode / storage disabled: dragging still works, just not remembered
+      }
+    }
+
+    function clearLivebarPosition() {
+      try {
+        window.localStorage.removeItem(LIVEBAR_POS_KEY)
+      } catch {
+        // ignore
+      }
+    }
+
+    /** Place one bar at `position`, clamped into the viewport. */
+    function applyLivebarPosition(bar, position) {
+      if (!bar || !position) return
+      const width = bar.offsetWidth || 320
+      const height = bar.offsetHeight || 56
+      const left = Math.min(Math.max(8, position.left), Math.max(8, window.innerWidth - width - 8))
+      const top = Math.min(Math.max(8, position.top), Math.max(8, window.innerHeight - height - 8))
+      bar.style.left = `${Math.round(left)}px`
+      bar.style.top = `${Math.round(top)}px`
+      bar.style.bottom = 'auto'
+      bar.style.transform = 'none'
+    }
+
+    /** Put every mounted live bar on the remembered position. */
+    function placeLivebars() {
+      const position = readLivebarPosition()
+      if (position === null) return
+      for (const bar of document.querySelectorAll('.dsm-livebar')) applyLivebarPosition(bar, position)
+    }
+
+    /** Reset a bar to the default bottom-centre spot (double click). */
+    function resetLivebar(bar) {
+      clearLivebarPosition()
+      if (!bar) return
+      bar.style.left = ''
+      bar.style.top = ''
+      bar.style.bottom = ''
+      bar.style.transform = ''
+    }
+
+    /** Pointer-drag any `.dsm-livebar`; ignores drags that start on a control. */
+    function installLivebarDrag() {
+      let drag = null
+      const onPointerDown = (event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return
+        const target = event.target instanceof Element ? event.target : null
+        const bar = target === null ? null : target.closest('.dsm-livebar')
+        if (!bar) return
+        if (target.closest('button, a, input, textarea, select')) return
+        const rect = bar.getBoundingClientRect()
+        drag = { bar, pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top }
+        bar.dataset.dsmDragging = '1'
+        try {
+          bar.setPointerCapture(event.pointerId)
+        } catch {
+          // pointer capture is best effort (older browsers)
+        }
+      }
+      const onPointerMove = (event) => {
+        if (drag === null || event.pointerId !== drag.pointerId) return
+        applyLivebarPosition(drag.bar, { left: event.clientX - drag.offsetX, top: event.clientY - drag.offsetY })
+        event.preventDefault()
+      }
+      const finish = () => {
+        if (drag === null) return
+        const bar = drag.bar
+        delete bar.dataset.dsmDragging
+        saveLivebarPosition({ left: parseFloat(bar.style.left) || 0, top: parseFloat(bar.style.top) || 0 })
+        drag = null
+      }
+      const onDoubleClick = (event) => {
+        const target = event.target instanceof Element ? event.target : null
+        const bar = target === null ? null : target.closest('.dsm-livebar')
+        if (bar) resetLivebar(bar)
+      }
+      document.addEventListener('pointerdown', onPointerDown)
+      document.addEventListener('pointermove', onPointerMove, { passive: false })
+      document.addEventListener('pointerup', finish)
+      document.addEventListener('pointercancel', finish)
+      document.addEventListener('dblclick', onDoubleClick)
+      // Bars mount and unmount with the recording state; adopt new ones.
+      const observer = typeof MutationObserver === 'function' ? new MutationObserver(() => placeLivebars()) : null
+      if (observer !== null) observer.observe(document.body, { childList: true, subtree: true })
+      placeLivebars()
+      return () => {
+        document.removeEventListener('pointerdown', onPointerDown)
+        document.removeEventListener('pointermove', onPointerMove)
+        document.removeEventListener('pointerup', finish)
+        document.removeEventListener('pointercancel', finish)
+        document.removeEventListener('dblclick', onDoubleClick)
+        if (observer !== null) observer.disconnect()
+      }
     }
 
     /**
@@ -4461,6 +4599,8 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       useEffect(() => {
         ensureStyle()
       }, [])
+      // The floating bars can be dragged anywhere and remember that spot.
+      useEffect(() => installLivebarDrag(), [])
       // Poll just enough of `/state` to surface an agent-started recording on the
       // page even when the panel was never opened. Commit only on change.
       // When the entry disappears the recording just finished: show a short
