@@ -34,6 +34,8 @@ window.__ModuleLoader__.load({
     const SPEECH_POLL_MS = 1200
     const SPEECH_TIMEOUT_MS = 10 * 60 * 1000
     const TOAST_TTL_MS = 7000
+    /** How long the "录音已结束" notice stays up after an agent recording stops. */
+    const RECORDING_ENDED_TTL_MS = 3000
     const AUDIO_MAX_SECONDS = 60 * 60
 
     const PRIORITY_LABELS = { high: '高', normal: '中', low: '低' }
@@ -295,6 +297,8 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
 .dsm-dialog-text{font-size:12.5px;line-height:20px;color:var(--dsw-alias-label-secondary);margin:0;word-break:break-word}
 .dsm-kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;border:1px solid var(--dsw-alias-border-l1);border-radius:4px;padding:0 3px;color:var(--dsw-alias-label-secondary)}
 .dsm-livebar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:210;display:flex;align-items:center;gap:10px;max-width:min(780px,94vw);box-sizing:border-box;padding:8px 10px 8px 12px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-toast-bg);color:var(--dsw-alias-toast-label);box-shadow:0 12px 34px color-mix(in srgb,var(--dsw-alias-label-primary) 24%,transparent)}
+.dsm-livebar--done{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 60%,var(--dsw-alias-border-l2))}
+.dsm-livebar-check{width:18px;height:18px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 22%,transparent);color:var(--dsw-alias-state-success-primary);font-size:11px;font-weight:700}
 .dsm-livebar-dot{width:9px;height:9px;border-radius:50%;background:var(--dsw-alias-state-error-primary);animation:dsm-pulse 1.2s ease-in-out infinite;flex:0 0 auto}
 .dsm-livebar-main{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:2px}
 .dsm-livebar-title{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:650;white-space:nowrap}
@@ -375,6 +379,8 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       speechMessage: '',
       speechPreparing: false,
       live: initialLiveState(),
+      /** Brief "recording finished" notice shown after an agent recording stops. */
+      recordingEnded: null,
       toasts: [],
     }
     const listeners = new Set()
@@ -4408,6 +4414,48 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       )
     }
 
+    /**
+     * Short confirmation shown when an agent-started recording disappears from
+     * `/state.activeRecording`: without it the floating bar just vanishes and the
+     * stop looks like a crash. Auto-hides after RECORDING_ENDED_TTL_MS.
+     */
+    function RecordingEndedBar() {
+      const state = useSnapshot()
+      const ended = state.recordingEnded
+      if (!ended) return null
+      const seconds = Number(ended.seconds) || 0
+      return h(
+        'div',
+        { className: 'dsm-livebar dsm-livebar--done', role: 'status', 'aria-live': 'polite' },
+        h('span', { className: 'dsm-livebar-check' }, '✓'),
+        h(
+          'div',
+          { className: 'dsm-livebar-main' },
+          h(
+            'div',
+            { className: 'dsm-livebar-title' },
+            h('span', null, '录音已结束'),
+            h('span', { className: 'dsm-livebar-timer' }, formatTimer(seconds)),
+            ended.title !== '' ? h('span', { className: 'dsm-hint', style: { fontWeight: 400 } }, ended.title) : null,
+          ),
+          h('div', { className: 'dsm-livebar-meta' }, `已保存 ${seconds} 秒整场音频，可打开纪要查看`),
+        ),
+        h(
+          'div',
+          { className: 'dsm-livebar-actions' },
+          h('button', {
+            type: 'button',
+            className: 'dsm-btn dsm-btn--sm',
+            onClick: () => {
+              commit({ recordingEnded: null })
+              void selectMeeting(ended.meetingId)
+              openMeetingPanel()
+            },
+          }, h(Icon, { name: 'doc', size: 11 }), h('span', null, '打开纪要')),
+        ),
+      )
+    }
+
     function ToastOverlay() {
       const state = useSnapshot()
       useEffect(() => {
@@ -4415,8 +4463,43 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       }, [])
       // Poll just enough of `/state` to surface an agent-started recording on the
       // page even when the panel was never opened. Commit only on change.
+      // When the entry disappears the recording just finished: show a short
+      // "已结束" notice instead of letting the bar vanish silently.
       useEffect(() => {
         let cancelled = false
+        let previous = null
+        let clearTimer = 0
+        const announceEnded = (entry) => {
+          const started = Date.parse(entry.startedAt)
+          const updated = Date.parse(entry.updatedAt)
+          const seconds = Number.isFinite(started) && Number.isFinite(updated)
+            ? Math.max(0, Math.round((updated - started) / 1000))
+            : 0
+          commit({
+            recordingEnded: {
+              meetingId: entry.meetingId,
+              title: entry.title ?? '',
+              seconds,
+              at: Date.now(),
+            },
+          })
+          // The wall-clock estimate above is only a fallback; the finalized
+          // record carries the real audio duration, so prefer it when it lands.
+          void requestJson(`/meetings/${encodeURIComponent(entry.meetingId)}`).then((payload) => {
+            const saved = Number(payload?.meeting?.audioSeconds) || 0
+            const current = snapshot.recordingEnded
+            if (saved > 0 && current !== null && current.meetingId === entry.meetingId) {
+              commit({ recordingEnded: { ...current, seconds: saved } })
+            }
+          }).catch(() => { /* keep the estimate */ })
+          if (clearTimer !== 0) window.clearTimeout(clearTimer)
+          clearTimer = window.setTimeout(() => {
+            clearTimer = 0
+            commit({ recordingEnded: null })
+          }, RECORDING_ENDED_TTL_MS)
+          // The finalized meeting (with its audio copy) is now in the library.
+          void refreshList()
+        }
         const tick = async () => {
           try {
             const data = await requestJson('/state')
@@ -4425,6 +4508,12 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
             const current = Array.isArray(snapshot.data?.activeRecording) ? snapshot.data.activeRecording : []
             if (JSON.stringify(next) !== JSON.stringify(current)) {
               commit({ data: { ...(snapshot.data ?? {}), activeRecording: next } })
+            }
+            if (next.length > 0) {
+              previous = next[0]
+            } else if (previous !== null) {
+              announceEnded(previous)
+              previous = null
             }
           } catch {
             // transient host hiccups are not worth surfacing
@@ -4435,6 +4524,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
         return () => {
           cancelled = true
           clearInterval(timer)
+          if (clearTimer !== 0) window.clearTimeout(clearTimer)
         }
       }, [])
       return h(
@@ -4442,6 +4532,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
         null,
         h(LiveRecordingBar, null),
         h(AgentRecordingBar, null),
+        h(RecordingEndedBar, null),
         state.toasts.length === 0
           ? null
           : h(

@@ -501,3 +501,38 @@ test('手工编辑转写：原文保留、计数累加、追加不算修订、�
     await context.close()
   }
 })
+
+test('无人值守录音：/state.activeRecording 出现，finalize 后清空并给出真实时长', async () => {
+  const { resetLiveSessions } = await import('../lib/live-sessions.js')
+  resetLiveSessions()
+  const context = await setup()
+  try {
+    const created = await context.call('/meetings', { method: 'POST', body: { title: '无人值守录音会', date: '2026-10-28' } })
+    const id = created.payload.meeting.id
+    const slice = encodeWavPcm16(new Int16Array(16000).fill(7))
+
+    await context.call(`/meetings/${id}/transcribe?live=1&index=1`, { method: 'POST', raw: Buffer.from(slice) })
+    await context.call(`/meetings/${id}/transcribe?live=1&index=2`, { method: 'POST', raw: Buffer.from(slice) })
+
+    // The page polls /state and shows the "正在录音" bar from this entry.
+    const during = await context.call('/state')
+    assert.equal(during.payload.activeRecording.length, 1)
+    assert.equal(during.payload.activeRecording[0].meetingId, id)
+    assert.equal(during.payload.activeRecording[0].title, '无人值守录音会')
+    assert.equal(during.payload.activeRecording[0].slices, 2)
+    assert.match(during.payload.activeRecording[0].startedAt, /^\d{4}-\d{2}-\d{2}T/)
+
+    // Stopping clears the entry (the page turns it into the "已结束" notice) and
+    // the record carries the real duration the notice should show.
+    const finalized = await context.call(`/meetings/${id}/audio/finalize`, { method: 'POST', body: {} })
+    assert.equal(finalized.status, 200)
+    const after = await context.call('/state')
+    assert.deepEqual(after.payload.activeRecording, [])
+    const meeting = await context.call(`/meetings/${id}`)
+    assert.equal(meeting.payload.meeting.audioSeconds, 2)
+  } finally {
+    const { resetLiveSessions } = await import('../lib/live-sessions.js')
+    resetLiveSessions()
+    await context.close()
+  }
+})
