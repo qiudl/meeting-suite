@@ -264,7 +264,6 @@ export function registerRoutes(ctx, deps) {
           await clearAudioParts({ meetingId: id })
           clearLiveSession(id)
           clearStopRequest(id)
-          clearStopRequest(id)
           sendJson(res, removed === null ? 404 : 200, removed === null ? { ok: false, error: '未找到会议' } : { ok: true })
           return
         }
@@ -397,6 +396,7 @@ export function registerRoutes(ctx, deps) {
         try {
           merged = await finalizeAudioParts({ meetingId: id, title: meeting.title, date: meeting.date })
           clearLiveSession(id)
+          clearStopRequest(id)
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           sendJson(res, 400, { ok: false, error: message })
