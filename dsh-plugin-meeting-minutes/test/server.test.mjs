@@ -33,7 +33,7 @@ const SUMMARY_INPUT = {
 }
 
 /** Build one server + deps pair sharing one temporary store. */
-async function setup() {
+async function setup(options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'meeting-server-test-'))
   // Keep every local write (store, exports, retained audio) inside the temp dir.
   const previousHome = process.env.DSH_HOME
@@ -105,7 +105,9 @@ async function setup() {
       getOrigin() { return 'http://127.0.0.1:50505' },
     },
   }
-  const dispose = registerRoutes(ctx, { store, asr, summarizer, calendar, autoIngest, logger: { info() {}, warn() {}, error() {} } })
+  const deps = { store, asr, summarizer, calendar, autoIngest, logger: { info() {}, warn() {}, error() {} } }
+  if (options.speakerTagger !== undefined) deps.speakerTagger = options.speakerTagger
+  const dispose = registerRoutes(ctx, deps)
   const server = createServer((req, res) => { void handler(req, res) })
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   const port = server.address().port
@@ -533,6 +535,156 @@ test('无人值守录音：/state.activeRecording 出现，finalize 后清空并
   } finally {
     const { resetLiveSessions } = await import('../lib/live-sessions.js')
     resetLiveSessions()
+    await context.close()
+  }
+})
+
+/** 记录调用的假说话人 tagger（服务器注入用）。 */
+function makeFakeSpeakerTagger(handler) {
+  const calls = { identify: [], rename: [], reset: [] }
+  return {
+    calls,
+    async identify(bytes, options) {
+      calls.identify.push({ bytes: bytes.length, meetingId: options?.meetingId })
+      return handler(bytes, options, calls)
+    },
+    rename(meetingId, speakerId, name) {
+      calls.rename.push({ meetingId, speakerId, name })
+      return { id: speakerId, label: name }
+    },
+    reset(meetingId) {
+      calls.reset.push(meetingId)
+    },
+  }
+}
+
+test('实时录音：声纹命中加「说话人N：」前缀并写入 speakers', async () => {
+  // 第一次切片认为是 speaker-1，第二次 speaker-2，之后回到 speaker-1。
+  const labels = ['speaker-1', 'speaker-2', 'speaker-1']
+  let index = 0
+  const tagger = makeFakeSpeakerTagger(() => {
+    const id = labels[Math.min(index, labels.length - 1)]
+    index += 1
+    return { id, label: id === 'speaker-1' ? '说话人1' : '说话人2', isNew: true, score: 0.9 }
+  })
+  const context = await setup({ speakerTagger: tagger })
+  try {
+    const created = await context.call('/meetings', { method: 'POST', body: { title: '面对面会议', date: '2026-10-29' } })
+    const id = created.payload.meeting.id
+    const slice = encodeWavPcm16(new Int16Array(16000).fill(10))
+
+    const first = await context.call(`/meetings/${id}/transcribe?live=1&index=1`, { method: 'POST', raw: Buffer.from(slice) })
+    assert.equal(first.status, 200)
+    assert.equal(first.payload.text, '说话人1：这是转写文本')
+    assert.deepEqual(first.payload.speaker, { id: 'speaker-1', label: '说话人1' })
+
+    const second = await context.call(`/meetings/${id}/transcribe?live=1&index=2`, { method: 'POST', raw: Buffer.from(slice) })
+    assert.equal(second.payload.text, '说话人2：这是转写文本')
+    const third = await context.call(`/meetings/${id}/transcribe?live=1&index=3`, { method: 'POST', raw: Buffer.from(slice) })
+    assert.equal(third.payload.text, '说话人1：这是转写文本')
+
+    const meeting = await context.call(`/meetings/${id}`)
+    assert.deepEqual(meeting.payload.meeting.speakers, [
+      { id: 'speaker-1', label: '说话人1' },
+      { id: 'speaker-2', label: '说话人2' },
+    ])
+    assert.equal(
+      meeting.payload.meeting.transcript,
+      '说话人1：这是转写文本\n说话人2：这是转写文本\n说话人1：这是转写文本',
+    )
+
+    const listed = await context.call(`/meetings/${id}/speakers`)
+    assert.equal(listed.status, 200)
+    assert.deepEqual(listed.payload, {
+      ok: true,
+      speakers: [
+        { id: 'speaker-1', label: '说话人1' },
+        { id: 'speaker-2', label: '说话人2' },
+      ],
+    })
+    assert.deepEqual(tagger.calls.identify.map((call) => call.meetingId), [id, id, id])
+  } finally {
+    await context.close()
+  }
+})
+
+test('说话人改名：transcript/transcriptRaw 前缀同步替换，后续切片用新名字', async () => {
+  const tagger = makeFakeSpeakerTagger(() => ({ id: 'speaker-1', label: '说话人1', isNew: true, score: 0.9 }))
+  const context = await setup({ speakerTagger: tagger })
+  try {
+    const created = await context.call('/meetings', { method: 'POST', body: { title: '改名会' } })
+    const id = created.payload.meeting.id
+    const slice = encodeWavPcm16(new Int16Array(16000).fill(10))
+    await context.call(`/meetings/${id}/transcribe?live=1&index=1`, { method: 'POST', raw: Buffer.from(slice) })
+
+    const renamed = await context.call(`/meetings/${id}/speakers/speaker-1/rename`, { method: 'POST', body: { name: '张三' } })
+    assert.equal(renamed.status, 200)
+    assert.deepEqual(renamed.payload.meeting.speakers, [{ id: 'speaker-1', label: '张三' }])
+    assert.equal(renamed.payload.meeting.transcript, '张三：这是转写文本')
+    assert.equal(renamed.payload.meeting.transcriptRaw, '张三：这是转写文本')
+    assert.equal(renamed.payload.meeting.transcriptEdits, 0)
+    assert.deepEqual(tagger.calls.rename, [{ meetingId: id, speakerId: 'speaker-1', name: '张三' }])
+
+    // 后续切片：假 tagger 仍报默认标签，但存储里的新名字优先
+    const next = await context.call(`/meetings/${id}/transcribe?live=1&index=2`, { method: 'POST', raw: Buffer.from(slice) })
+    assert.equal(next.payload.text, '张三：这是转写文本')
+  } finally {
+    await context.close()
+  }
+})
+
+test('非 live 转写不调用声纹；声纹异常不影响转写', async () => {
+  const tagger = makeFakeSpeakerTagger(() => { throw new Error('声纹炸了') })
+  const context = await setup({ speakerTagger: tagger })
+  try {
+    const created = await context.call('/meetings', { method: 'POST', body: { title: '普通转写会' } })
+    const id = created.payload.meeting.id
+    const uploaded = await context.call(`/meetings/${id}/transcribe`, { method: 'POST', raw: Buffer.from('fake-wav-bytes') })
+    assert.equal(uploaded.status, 200)
+    assert.equal(uploaded.payload.text, '这是转写文本')
+    assert.equal(uploaded.payload.speaker, null)
+    assert.equal(uploaded.payload.transcript, '这是转写文本')
+
+    // live 切片识别抛错：转写照常，只是不加前缀、不新增 speakers
+    const live = await context.call(`/meetings/${id}/transcribe?live=1&index=1`, { method: 'POST', raw: Buffer.from('fake-wav-bytes-live') })
+    assert.equal(live.status, 200)
+    assert.equal(live.payload.text, '这是转写文本')
+    assert.equal(live.payload.transcript, '这是转写文本\n这是转写文本')
+    const meeting = await context.call(`/meetings/${id}`)
+    assert.deepEqual(meeting.payload.meeting.speakers, [])
+    // 上传（非 live）转写一次声纹都没调；只有 live 那一次调用并失败
+    assert.equal(tagger.calls.identify.length, 1)
+  } finally {
+    await context.close()
+  }
+})
+
+test('speakers 路由：未知会议/未知说话人/空名字/空列表', async () => {
+  const context = await setup()
+  try {
+    const missing = await context.call('/meetings/mt_nope/speakers')
+    assert.equal(missing.status, 404)
+
+    const created = await context.call('/meetings', { method: 'POST', body: { title: '没有说话人的会' } })
+    const id = created.payload.meeting.id
+    const listed = await context.call(`/meetings/${id}/speakers`)
+    assert.equal(listed.status, 200)
+    assert.deepEqual(listed.payload, { ok: true, speakers: [] })
+
+    const unknown = await context.call(`/meetings/${id}/speakers/speaker-1/rename`, { method: 'POST', body: { name: '张三' } })
+    assert.equal(unknown.status, 404)
+    assert.match(unknown.payload.error, /未找到说话人/)
+
+    // 先造一个 speaker，再验空名字
+    await context.store.addSpeaker(id, { id: 'speaker-1', label: '说话人1' })
+    const emptyName = await context.call(`/meetings/${id}/speakers/speaker-1/rename`, { method: 'POST', body: { name: '   ' } })
+    assert.equal(emptyName.status, 400)
+    assert.match(emptyName.payload.error, /name 不能为空/)
+
+    const tooLong = await context.call(`/meetings/${id}/speakers/speaker-1/rename`, { method: 'POST', body: { name: '长'.repeat(41) } })
+    assert.equal(tooLong.status, 400)
+    assert.match(tooLong.payload.error, /名称过长/)
+  } finally {
     await context.close()
   }
 })

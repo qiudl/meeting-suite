@@ -308,7 +308,7 @@ export function splitWav(bytes, maxSeconds = 100) {
 /**
  * 把若干段 canonical WAV 按顺序拼成一段完整 WAV。
  *
- * 用于实时录音：面板按 5 秒切片滚动上传、只做识别；停录时把整场切片拼回
+ * 用于实时录音：面板按 VAD 切片（停顿阈值触发）滚动上传、只做识别；停录时把整场切片拼回
  * 一份音频，再落一次副本、算整场 sha256 与时长。所有切片必须是相同格式的
  * 16bit PCM（本机链路固定 16k 单声道）。
  *
@@ -360,6 +360,29 @@ export function encodeWavPcm16(samples, sampleRate = TARGET_SAMPLE_RATE) {
     throw new Error('采样率必须是大于 0 的整数')
   }
   return buildWav(pcm16ToBytes(samples), { sampleRate, channels: 1, bitsPerSample: 16 })
+}
+
+/**
+ * 把 16bit PCM WAV 的采样点解码成 `[-1, 1]` 的 Float32Array。
+ *
+ * 说话人声纹模型（sherpa-onnx / CAM++）吃的是浮点采样；WAV 的 PCM 负载固定
+ * 小端 Int16LE，这里按 {@link wavInfo} 给出的 `data` 偏移读取，避免把附加
+ * chunk（LIST / fact 等）当成音频。解码后不做重采样：调用方拿到的就是
+ * 16kHz 单声道的采样序列。
+ *
+ * @param bytes - 16kHz 单声道 16bit PCM WAV（Uint8Array / Buffer / ArrayBuffer）。
+ * @returns Float32Array，长度等于帧数（每声道采样点数）。
+ * @throws 不是合格的 16k 单声道 PCM16 WAV 时抛中文 Error。
+ */
+export function pcm16ToFloat32(bytes) {
+  const info = parseWav(bytes)
+  const view = new DataView(info.view.buffer, info.view.byteOffset + info.dataOffset, info.dataBytes)
+  const frames = Math.floor(info.dataBytes / 2)
+  const samples = new Float32Array(frames)
+  for (let index = 0; index < frames; index += 1) {
+    samples[index] = view.getInt16(index * 2, true) / 32768
+  }
+  return samples
 }
 
 /**

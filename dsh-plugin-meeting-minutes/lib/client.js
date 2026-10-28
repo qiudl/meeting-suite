@@ -13,7 +13,8 @@
  *
  * Audio pipeline (browser side):
  *   - live: getUserMedia → AudioContext → ScriptProcessor(4096) → streaming
- *     resampler → 5 s PCM16 WAV chunks → rolling POST /transcribe (append).
+ *     resampler → energy-VAD sentence slices (≈3 s pause by default) → PCM16 WAV
+ *     chunks → rolling POST /transcribe (append).
  *   - file: decodeAudioData → 16 kHz mono → ≤90 s WAV slices → sequential POST.
  *   The live recorder lives at module scope and survives modal/panel unmounts.
  */
@@ -52,14 +53,254 @@ window.__ModuleLoader__.load({
       failed: '失败',
       cancelled: '已取消',
     }
-    /** Live capture: one WAV chunk every five seconds of audio. */
-    const LIVE_FLUSH_SECONDS = 5
-    const LIVE_FLUSH_FRAMES = TARGET_RATE * LIVE_FLUSH_SECONDS
+    // #region live-vad-core
+    // Pure energy-VAD core. This region is extracted verbatim by
+    // `test/live-vad.test.mjs` and executed in a bare VM context, so it must be
+    // self-contained: no DOM globals, no plugin store, no outer-scope references.
+    // The browser wrapper feeds 16 kHz mono Float32 blocks in and turns every
+    // emitted slice into one rolling transcription request.
+
+    /** Pause length before a sentence is sliced when nothing else is stored. */
+    const LIVE_VAD_DEFAULT_SILENCE_SECONDS = 3
+    /** User-selectable pause lengths, in seconds; anything else falls back to 3. */
+    const LIVE_VAD_SILENCE_OPTIONS = [1.5, 3, 5]
+    /** Browser storage key for the pause preference (applies to the next take). */
+    const LIVE_VAD_SILENCE_KEY = 'dsh.meeting.vad.silenceSeconds'
+    /** A blip shorter than this is never sliced out on its own. */
+    const LIVE_VAD_MIN_SENTENCE_SECONDS = 0.35
+    /** Continuous talking is force-sliced at this length. */
+    const LIVE_VAD_MAX_SENTENCE_SECONDS = 10
+    /** Audio kept from just before the onset so the first syllable is not clipped. */
+    const LIVE_VAD_PREROLL_SECONDS = 0.3
+    /** Trailing silence kept inside a slice; anything newer is dropped. */
+    const LIVE_VAD_TAIL_SILENCE_SECONDS = 0.2
+    /** Analysis frame: 10 ms at 16 kHz. */
+    const LIVE_VAD_FRAME_SECONDS = 0.01
+    /** Speech must clear max(absolute floor, tracked room tone × factor). */
+    const LIVE_VAD_NOISE_FLOOR_MIN = 0.004
+    const LIVE_VAD_NOISE_FLOOR_FACTOR = 2.2
+    /** Slow one-pole room-tone tracking (~1 s time constant at 10 ms frames). */
+    const LIVE_VAD_NOISE_ALPHA = 0.01
+    /** Sample rate used when the caller does not provide one. */
+    const LIVE_VAD_SAMPLE_RATE = 16000
+
+    /** Coerce a stored/select value into one of 1.5 / 3 / 5 (default 3). */
+    function normalizeVadSilenceSeconds(value) {
+      const seconds = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''))
+      for (const option of LIVE_VAD_SILENCE_OPTIONS) {
+        if (seconds === option) return option
+      }
+      return LIVE_VAD_DEFAULT_SILENCE_SECONDS
+    }
+
+    function vadFrameRms(frame) {
+      if (frame.length === 0) return 0
+      let energy = 0
+      for (let index = 0; index < frame.length; index += 1) energy += frame[index] * frame[index]
+      return Math.sqrt(energy / frame.length)
+    }
+
+    function vadConcatFrames(frames) {
+      let total = 0
+      for (const frame of frames) total += frame.length
+      const merged = new Float32Array(total)
+      let offset = 0
+      for (const frame of frames) {
+        merged.set(frame, offset)
+        offset += frame.length
+      }
+      return merged
+    }
+
+    /**
+     * Sentence slicer state machine: silent → speaking → (pause long enough, or
+     * sentence too long) → one slice. `push(block)` returns the slices that became
+     * ready; `flush()` drains whatever is left when recording stops; `getState()`
+     * exposes the counters used by the UI and by the unit tests.
+     */
+    function createLiveVad(options = {}) {
+      const requestedRate = Number(options.sampleRate)
+      const sampleRate = Number.isFinite(requestedRate) && requestedRate > 0
+        ? Math.round(requestedRate)
+        : LIVE_VAD_SAMPLE_RATE
+      const silenceTarget = normalizeVadSilenceSeconds(options.silenceSeconds)
+      const frameSamples = Math.max(1, Math.round(sampleRate * LIVE_VAD_FRAME_SECONDS))
+      const frameSeconds = frameSamples / sampleRate
+      const prerollFrames = Math.max(1, Math.round(LIVE_VAD_PREROLL_SECONDS / frameSeconds))
+      const tailFrames = Math.max(0, Math.round(LIVE_VAD_TAIL_SILENCE_SECONDS / frameSeconds))
+      const minSpeechFrames = Math.max(1, Math.round(LIVE_VAD_MIN_SENTENCE_SECONDS / frameSeconds))
+      const silenceFrames = Math.max(1, Math.round(silenceTarget / frameSeconds))
+      const maxSpeechFrames = Math.max(1, Math.round(LIVE_VAD_MAX_SENTENCE_SECONDS / frameSeconds))
+      const minSliceSamples = Math.round(sampleRate * LIVE_VAD_TAIL_SILENCE_SECONDS)
+
+      let state = 'silent'
+      /** Frames of the current sentence: preroll + speech + trailing silence. */
+      let pending = []
+      /** Most recent frames, replayed as the next onset's preroll. */
+      let ring = []
+      /** Incomplete frame left over between audio callbacks. */
+      let remainder = new Float32Array(0)
+      /** Speech frames in the current sentence (the "current sentence length"). */
+      let speechFrames = 0
+      /** Trailing silence frames inside the current sentence. */
+      let silenceRun = 0
+      let noiseFloor = LIVE_VAD_NOISE_FLOOR_MIN / LIVE_VAD_NOISE_FLOOR_FACTOR
+
+      function threshold() {
+        return Math.max(LIVE_VAD_NOISE_FLOOR_MIN, noiseFloor * LIVE_VAD_NOISE_FLOOR_FACTOR)
+      }
+
+      function pushRing(frame) {
+        ring.push(frame)
+        while (ring.length > prerollFrames) ring.shift()
+      }
+
+      function resetSentence() {
+        pending = []
+        speechFrames = 0
+        silenceRun = 0
+        state = 'silent'
+      }
+
+      /** Build the slice for the current sentence, trimming its trailing silence. */
+      function buildSlice(reason) {
+        if (pending.length === 0) return null
+        const drop = Math.max(0, silenceRun - tailFrames)
+        const kept = drop === 0 ? pending : pending.slice(0, Math.max(0, pending.length - drop))
+        const samples = vadConcatFrames(kept)
+        if (samples.length < minSliceSamples) return null
+        return {
+          samples,
+          reason,
+          sampleRate,
+          durationSeconds: samples.length / sampleRate,
+          speechSeconds: speechFrames * frameSeconds,
+          silenceSeconds: silenceRun * frameSeconds,
+        }
+      }
+
+      function handleFrame(frame, out) {
+        const rms = vadFrameRms(frame)
+        const speech = rms >= threshold()
+        if (state === 'silent') {
+          if (!speech) {
+            // Learn the room tone slowly; speech must never train the floor.
+            noiseFloor += (rms - noiseFloor) * LIVE_VAD_NOISE_ALPHA
+            pushRing(frame)
+            return
+          }
+          state = 'speaking'
+          pending = ring.slice(-prerollFrames)
+          pending.push(frame)
+          speechFrames = 1
+          silenceRun = 0
+          pushRing(frame)
+          return
+        }
+        pending.push(frame)
+        pushRing(frame)
+        if (speech) {
+          speechFrames += 1
+          silenceRun = 0
+        } else {
+          silenceRun += 1
+          // Pauses inside a sentence also teach the floor, so a noisy room does
+          // not keep being sliced as one 10 s sentence forever.
+          noiseFloor += (rms - noiseFloor) * LIVE_VAD_NOISE_ALPHA
+        }
+        if (speechFrames >= maxSpeechFrames) {
+          const slice = buildSlice('maxSentence')
+          if (slice !== null) out.push(slice)
+          // Still talking: start the next sentence right here.
+          pending = []
+          speechFrames = 0
+          silenceRun = 0
+          return
+        }
+        if (silenceRun >= silenceFrames) {
+          if (speechFrames >= minSpeechFrames) {
+            const slice = buildSlice('silence')
+            if (slice !== null) out.push(slice)
+          }
+          resetSentence()
+        }
+      }
+
+      return {
+        push(samples) {
+          const out = []
+          if (!samples || samples.length === 0) return out
+          const incoming = samples instanceof Float32Array ? samples : Float32Array.from(samples)
+          const joined = new Float32Array(remainder.length + incoming.length)
+          joined.set(remainder, 0)
+          joined.set(incoming, remainder.length)
+          let offset = 0
+          while (offset + frameSamples <= joined.length) {
+            handleFrame(joined.subarray(offset, offset + frameSamples), out)
+            offset += frameSamples
+          }
+          remainder = joined.slice(offset)
+          return out
+        },
+        /** Stop-recording drain: final slice, or null when < 200 ms is left. */
+        flush() {
+          if (remainder.length > 0) {
+            if (state === 'speaking') pending.push(remainder)
+            remainder = new Float32Array(0)
+          }
+          if (state !== 'speaking') {
+            resetSentence()
+            return null
+          }
+          const slice = buildSlice('stop')
+          resetSentence()
+          return slice
+        },
+        reset() {
+          ring = []
+          remainder = new Float32Array(0)
+          noiseFloor = LIVE_VAD_NOISE_FLOOR_MIN / LIVE_VAD_NOISE_FLOOR_FACTOR
+          resetSentence()
+        },
+        getState() {
+          return {
+            state,
+            speechSeconds: speechFrames * frameSeconds,
+            silenceRunSeconds: silenceRun * frameSeconds,
+            pendingFrames: pending.length,
+            noiseFloor,
+            threshold: threshold(),
+            silenceTargetSeconds: silenceTarget,
+            frameSeconds,
+          }
+        },
+      }
+    }
+
+    const liveVadCore = Object.freeze({
+      createLiveVad,
+      normalizeVadSilenceSeconds,
+      LIVE_VAD_DEFAULT_SILENCE_SECONDS,
+      LIVE_VAD_SILENCE_OPTIONS,
+      LIVE_VAD_SILENCE_KEY,
+      LIVE_VAD_MIN_SENTENCE_SECONDS,
+      LIVE_VAD_MAX_SENTENCE_SECONDS,
+      LIVE_VAD_PREROLL_SECONDS,
+      LIVE_VAD_TAIL_SILENCE_SECONDS,
+      LIVE_VAD_NOISE_FLOOR_MIN,
+      LIVE_VAD_NOISE_FLOOR_FACTOR,
+      LIVE_VAD_SAMPLE_RATE,
+    })
+
+    // The unit test extracts this region and runs it in a bare VM context with a
+    // fresh `exports` object; inside the plugin factory `exports` is the client
+    // module object, so the assignment is harmless in production.
+    if (typeof exports === 'object' && exports !== null) exports.liveVadCore = liveVadCore
+    // #endregion live-vad-core
+
     /** At most two transcription requests in flight; pending chunks merge. */
     const LIVE_MAX_INFLIGHT = 2
     const LIVE_MAX_PENDING = 2
-    /** Do not send a final sliver shorter than 200 ms. */
-    const LIVE_MIN_FRAMES = Math.round(TARGET_RATE * 0.2)
     const LIVE_IDLE_TIMEOUT_MS = 120 * 1000
 
     // ──────────────────────────────── styles ────────────────────────────────
@@ -222,6 +463,11 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
 .dsm-todo-hint{font-size:11px;color:var(--dsw-alias-label-secondary);line-height:17px}
 .dsm-todo-hint--warn{color:var(--dsw-alias-state-warn-label)}
 .dsm-empty-table{padding:16px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dsm-speakers{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:2px 0 0}
+.dsm-speakers-label{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dsm-speaker-chip{max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.dsm-speaker-edit{display:inline-flex;align-items:center;gap:4px}
+.dsm-speaker-input{width:132px;box-sizing:border-box}
 .dsm-transcript{border:1px solid var(--dsw-alias-border-l1);border-radius:13px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}
 .dsm-transcript-head{display:flex;align-items:center;gap:8px;padding:9px 12px;flex-wrap:wrap}
 .dsm-transcript-toggle{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;padding:0}
@@ -309,6 +555,10 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
 .dsm-livebar .dsm-btn{color:var(--dsw-alias-toast-label);border-color:color-mix(in srgb,var(--dsw-alias-toast-label) 24%,transparent)}
 .dsm-livebar .dsm-btn:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-toast-label) 12%,transparent);color:var(--dsw-alias-toast-label)}
 .dsm-livebar .dsm-btn--danger{color:var(--dsw-alias-label-error);border-color:color-mix(in srgb,var(--dsw-alias-label-error) 55%,transparent)}
+.dsm-livebar-select{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--dsw-alias-toast-label);white-space:nowrap;cursor:pointer}
+.dsm-livebar-select select{appearance:none;-webkit-appearance:none;border:1px solid color-mix(in srgb,var(--dsw-alias-toast-label) 26%,transparent);border-radius:6px;background:transparent;color:inherit;font-family:inherit;font-size:11px;line-height:16px;padding:1px 5px;cursor:pointer}
+.dsm-livebar-select select:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
+.dsm-livebar-select select option{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}
 .dsm-live-panel{display:flex;flex-direction:column;gap:10px;padding:4px 0 2px}
 .dsm-live-head{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;word-break:break-word}
 .dsm-live-head .dsm-livebar-dot{width:10px;height:10px}
@@ -712,6 +962,54 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
         if (!options.quiet) reportError(error, '会议加载失败')
         return null
       }
+    }
+
+    /**
+     * Normalise `meeting.speakers` (host contract: `[{ id, label }]`). Anything
+     * else — missing field, old host, empty array — collapses to `[]`.
+     */
+    function normalizeSpeakerList(value) {
+      if (!Array.isArray(value)) return []
+      const list = []
+      for (const item of value) {
+        if (item === null || typeof item !== 'object') continue
+        const rawId = item.id
+        const id = typeof rawId === 'string' ? rawId : (typeof rawId === 'number' ? String(rawId) : '')
+        if (id === '') continue
+        const label = typeof item.label === 'string' && item.label.trim() !== ''
+          ? item.label.trim()
+          : `说话人${list.length + 1}`
+        list.push({ id, label })
+      }
+      return list
+    }
+
+    /**
+     * Speaker list for a meeting. Returns `null` when the host does not implement
+     * the route yet (404 / old build), so callers can stay silent instead of
+     * flashing an error for a feature the backend is still adding.
+     */
+    async function loadMeetingSpeakers(meetingId) {
+      if (!meetingId) return null
+      try {
+        const payload = await requestJson(`/meetings/${encodeURIComponent(meetingId)}/speakers`)
+        if (!payload || payload.ok !== true) return null
+        return normalizeSpeakerList(payload.speakers)
+      } catch {
+        return null
+      }
+    }
+
+    /** Rename one speaker label; resolves with the host payload. */
+    async function renameMeetingSpeaker(meetingId, speakerId, name) {
+      const payload = await requestJson(
+        `/meetings/${encodeURIComponent(meetingId)}/speakers/${encodeURIComponent(speakerId)}/rename`,
+        { method: 'POST', body: { name } },
+      )
+      if (payload?.meeting && payload.meeting.id === snapshot.selectedId) {
+        commit({ meeting: payload.meeting })
+      }
+      return payload
     }
 
     /**
@@ -1361,6 +1659,26 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
         && (live.status === 'preparing' || live.status === 'recording' || live.status === 'stopping')
     }
 
+    /** Pause preference from the browser (defaults to 3 s; never throws). */
+    function readVadSilenceSeconds() {
+      try {
+        return normalizeVadSilenceSeconds(window.localStorage.getItem(LIVE_VAD_SILENCE_KEY))
+      } catch {
+        return LIVE_VAD_DEFAULT_SILENCE_SECONDS
+      }
+    }
+
+    /** Persist the pause preference; it takes effect on the next recording. */
+    function writeVadSilenceSeconds(value) {
+      const seconds = normalizeVadSilenceSeconds(value)
+      try {
+        window.localStorage.setItem(LIVE_VAD_SILENCE_KEY, String(seconds))
+      } catch {
+        // Private mode / storage disabled: the in-memory selection still works.
+      }
+      return seconds
+    }
+
     /**
      * Streaming linear resampler. The fractional read position AND the unconsumed
      * source tail survive `push()` calls, so concatenated blocks stay continuous
@@ -1430,8 +1748,8 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       processor: null,
       sink: null,
       resampler: null,
-      accumulator: [],
-      accumulatedFrames: 0,
+      /** Per-take energy VAD; created in `startLiveRecording`. */
+      vad: null,
       queue: [],
       inFlight: 0,
       pumping: false,
@@ -1653,7 +1971,10 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       }
     }
 
-    /** Audio-thread callback: accumulate by AUDIO time, flush there (not by timer). */
+    /**
+     * Audio-thread callback: hand the resampled block to the energy VAD. The VAD
+     * owns slicing (natural pauses / 10 s cap), so nothing is flushed by a timer.
+     */
     function onLiveAudioProcess(event) {
       if (snapshot.live.status !== 'recording') return
       const input = event.inputBuffer?.getChannelData?.(0)
@@ -1665,24 +1986,21 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       liveEngine.level = Math.min(1, Math.sqrt(energy / mono.length) * 4)
       const resampled = liveEngine.resampler === null ? mono : liveEngine.resampler.push(mono)
       if (resampled.length === 0) return
-      liveEngine.accumulator.push(resampled)
-      liveEngine.accumulatedFrames += resampled.length
-      if (liveEngine.accumulatedFrames >= LIVE_FLUSH_FRAMES) flushLiveSamples(false)
+      const vad = liveEngine.vad
+      if (vad === null) return
+      for (const slice of vad.push(resampled)) enqueueLiveSamples(slice.samples)
     }
 
+    /**
+     * Drain the VAD. Stop-recording calls this with `force`; the VAD itself drops
+     * a final sliver shorter than 200 ms (and trims the trailing silence).
+     */
     function flushLiveSamples(force = false) {
-      const frames = liveEngine.accumulatedFrames
-      if (frames === 0) return
-      if (!force && frames < LIVE_FLUSH_FRAMES) return
-      if (force && frames < LIVE_MIN_FRAMES) {
-        liveEngine.accumulator = []
-        liveEngine.accumulatedFrames = 0
-        return
-      }
-      const merged = concatFloat32(liveEngine.accumulator)
-      liveEngine.accumulator = []
-      liveEngine.accumulatedFrames = 0
-      enqueueLiveSamples(merged)
+      if (!force) return
+      const vad = liveEngine.vad
+      if (vad === null) return
+      const slice = vad.flush()
+      if (slice !== null) enqueueLiveSamples(slice.samples)
     }
 
     function enqueueLiveSamples(samples) {
@@ -1803,8 +2121,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
 
     function releaseLiveAudio() {
       stopLiveCapture()
-      liveEngine.accumulator = []
-      liveEngine.accumulatedFrames = 0
+      liveEngine.vad = null
       liveEngine.queue = []
       liveEngine.inFlight = 0
       liveEngine.pumping = false
@@ -1856,6 +2173,11 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
         liveEngine.processor = capture.processor
         liveEngine.sink = capture.sink
         liveEngine.resampler = capture.resampler
+        // Read the pause preference now: a change in the bar applies to the next take.
+        liveEngine.vad = createLiveVad({
+          sampleRate: TARGET_RATE,
+          silenceSeconds: readVadSilenceSeconds(),
+        })
         capture.processor.onaudioprocess = onLiveAudioProcess
         publishLive({
           status: 'recording',
@@ -3027,7 +3349,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       const subtitle = liveStatus === 'preparing'
         ? '正在启动语音识别，就绪后自动开始录音。'
         : liveStatus === 'recording'
-          ? '实时转写约 6–10 秒延迟；关闭弹窗后仍在后台录音。'
+          ? '停顿约 3 秒自动切出一句；转写约 6–10 秒延迟，关闭弹窗后仍在后台录音。'
           : liveStatus === 'stopping'
             ? '正在等待最后几段识别结果，完成后自动保存。'
             : liveStatus === 'done' || liveStatus === 'error'
@@ -3093,7 +3415,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
             h('div', { className: 'dsm-live-queue' }, `识别队列：在飞 ${live.inFlight} · 待发 ${live.queued} · 已发送 ${live.sentChunks} 段`),
             h('div', { className: 'dsm-hint' }, preparing
               ? '语音模型就绪后自动开始录音；关闭弹窗不会中断。'
-              : '可在后台录音，关闭弹窗不中断；停止后会等待所有在飞识别完成。'),
+              : `停顿 ${readVadSilenceSeconds()} 秒自动切出一句（可在浮条上调整）；可在后台录音，停止后会等待所有在飞识别完成。`),
           ),
         ]
       } else if (liveStatus === 'done') {
@@ -3191,7 +3513,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
             })),
           ),
           h('div', { key: 'hint', className: 'dsm-hint' }, tab === 'record'
-            ? '实时转写约 6–10 秒延迟；标题可留空，会自动命名，之后可改（AI 生成纪要时也会自动起名）。可在后台录音，关闭弹窗不中断。'
+            ? '停顿约 3 秒自动切出一句（浮条上可改成 1.5 / 5 秒）；标题可留空，会自动命名，之后可改。可在后台录音，关闭弹窗不中断。'
             : '文件转写仍使用浏览器解码 → 16kHz 单声道 PCM16 WAV → 90 秒切片逐段识别；支持 WAV / MP3 / M4A / MP4 / WebM。'),
           speechAvailable
             ? null
@@ -3824,6 +4146,126 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       )
     }
 
+    /**
+     * Speaker chips shown right above the transcript. The host-side diarisation
+     * route is developed in parallel, so an unimplemented/old host degrades to
+     * "no chips" instead of an error banner.
+     */
+    function SpeakerChips(props) {
+      const meetingId = typeof props.meetingId === 'string' ? props.meetingId : ''
+      const incoming = normalizeSpeakerList(props.speakers)
+      const incomingKey = incoming.map((item) => `${item.id}:${item.label}`).join('|')
+      const [speakers, setSpeakers] = useState(incoming)
+      const [editingId, setEditingId] = useState(null)
+      const [draft, setDraft] = useState('')
+      const [saving, setSaving] = useState(false)
+      // Guards against re-fetching a route the host does not implement.
+      const fetchedFor = useRef('')
+
+      // A different meeting resets the local list, then lazily asks the host.
+      useEffect(() => {
+        setEditingId(null)
+        setDraft('')
+        setSpeakers(normalizeSpeakerList(props.speakers))
+        if (meetingId === '' || normalizeSpeakerList(props.speakers).length > 0) return undefined
+        if (fetchedFor.current === meetingId) return undefined
+        fetchedFor.current = meetingId
+        let cancelled = false
+        void loadMeetingSpeakers(meetingId).then((found) => {
+          if (cancelled || found === null || found.length === 0) return
+          setSpeakers(found)
+        })
+        return () => { cancelled = true }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [meetingId])
+
+      // Fresh host data (meeting reloaded after a rename) wins over the local copy.
+      useEffect(() => {
+        if (incoming.length > 0) setSpeakers(incoming)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [incomingKey])
+
+      if (speakers.length === 0) return null
+
+      const startEdit = (speaker) => {
+        setEditingId(speaker.id)
+        setDraft(speaker.label)
+      }
+      const cancelEdit = () => {
+        setEditingId(null)
+        setDraft('')
+      }
+      const save = async (speaker) => {
+        const name = draft.trim()
+        if (name === '' || name === speaker.label) {
+          cancelEdit()
+          return
+        }
+        setSaving(true)
+        try {
+          const payload = await renameMeetingSpeaker(meetingId, speaker.id, name)
+          const fromHost = normalizeSpeakerList(payload?.meeting?.speakers)
+          setSpeakers(fromHost.length > 0
+            ? fromHost
+            : speakers.map((item) => (item.id === speaker.id ? { ...item, label: name } : item)))
+          cancelEdit()
+          notifySuccess('已更新说话人', name)
+          void reloadMeetingQuietly(meetingId)
+        } catch (caught) {
+          reportError(caught, '更新说话人失败')
+        } finally {
+          setSaving(false)
+        }
+      }
+
+      return h(
+        'div',
+        { className: 'dsm-speakers', role: 'group', 'aria-label': '说话人' },
+        h('span', { className: 'dsm-speakers-label' }, '说话人'),
+        ...speakers.map((speaker) => (editingId === speaker.id
+          ? h(
+            'span',
+            { key: speaker.id, className: 'dsm-speaker-edit' },
+            h('input', {
+              className: 'dsm-input dsm-input--cell dsm-speaker-input',
+              value: draft,
+              autoFocus: true,
+              disabled: saving,
+              'aria-label': `重命名${speaker.label}`,
+              onChange: (event) => setDraft(event.target.value),
+              onKeyDown: (event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void save(speaker)
+                } else if (event.key === 'Escape') {
+                  event.preventDefault()
+                  cancelEdit()
+                }
+              },
+            }),
+            h('button', {
+              type: 'button',
+              className: 'dsm-btn dsm-btn--sm dsm-btn--primary',
+              onClick: () => { void save(speaker) },
+              disabled: saving,
+            }, h('span', null, saving ? '保存中…' : '保存')),
+            h('button', {
+              type: 'button',
+              className: 'dsm-btn dsm-btn--sm',
+              onClick: cancelEdit,
+              disabled: saving,
+            }, h('span', null, '取消')),
+          )
+          : h('button', {
+            key: speaker.id,
+            type: 'button',
+            className: 'dsm-chip dsm-speaker-chip',
+            title: '点击重命名说话人',
+            onClick: () => startEdit(speaker),
+          }, h(Icon, { name: 'edit', size: 10 }), h('span', null, speaker.label)))),
+      )
+    }
+
     function TranscriptSection(props) {
       const text = String(props.transcript ?? '')
       const meetingId = typeof props.meetingId === 'string' ? props.meetingId : ''
@@ -4126,6 +4568,12 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
           )
           : null,
         hasTranscript
+          ? h(SpeakerChips, {
+            meetingId: meeting.id,
+            speakers: meeting.speakers,
+          })
+          : null,
+        hasTranscript
           ? h(TranscriptSection, {
             transcript: meeting.transcript,
             meetingId: meeting.id,
@@ -4320,6 +4768,38 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
 
     // ─────────────────────────────── overlay ──────────────────────────────
 
+    /**
+     * Pause-length picker on the live bar. The stored value is read when a
+     * recording starts, so changing it mid-take only affects the next take.
+     */
+    function VadSilenceSelect() {
+      const [value, setValue] = useState(readVadSilenceSeconds)
+      const change = (event) => {
+        const seconds = writeVadSilenceSeconds(event.target.value)
+        setValue(seconds)
+        notify('info', '停顿切片已更新', `停顿 ${seconds} 秒后转写；下次开始录音生效`)
+      }
+      return h(
+        'label',
+        { className: 'dsm-livebar-select', title: '静音停顿多久后把这一句切出来转写（下次开始录音生效）' },
+        h('span', null, '停顿'),
+        h(
+          'select',
+          {
+            value: String(value),
+            onChange: change,
+            'aria-label': '停顿多久后转写',
+          },
+          ...LIVE_VAD_SILENCE_OPTIONS.map((option) => h(
+            'option',
+            { key: option, value: String(option) },
+            `${option} 秒`,
+          )),
+        ),
+        h('span', null, '后转写'),
+      )
+    }
+
     /** Persistent floating bar: the recording survives panel/modal unmounts. */
     function LiveRecordingBar() {
       const state = useSnapshot()
@@ -4357,6 +4837,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
         h(
           'div',
           { className: 'dsm-livebar-actions' },
+          !preparing && !stopping ? h(VadSilenceSelect, { key: 'vad' }) : null,
           !preparing && !stopping
             ? h('button', {
               type: 'button',

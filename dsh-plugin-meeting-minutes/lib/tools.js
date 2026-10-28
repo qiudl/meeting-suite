@@ -95,6 +95,28 @@ export function describeMeeting(meeting, options = {}) {
   return lines.join('\n')
 }
 
+/** 统计 transcript 里以某个说话人标签开头的行数。 */
+function countSpeakerLines(transcript, label) {
+  if (typeof transcript !== 'string' || transcript === '' || label === '') return 0
+  const prefix = `${label}：`
+  return transcript.split('\n').filter((line) => line.startsWith(prefix)).length
+}
+
+/** 说话人列表的中文描述（工具输出）。 */
+export function describeSpeakers(meeting) {
+  const speakers = Array.isArray(meeting.speakers) ? meeting.speakers : []
+  if (speakers.length === 0) {
+    return `会议「${meeting.title}」还没有识别出说话人。\n说明：只有实时录音（按停顿切片转写）才会自动加说话人标签；导入的录音/文本没有说话人信息。`
+  }
+  const lines = [`会议「${meeting.title}」共有 ${speakers.length} 位说话人：`]
+  for (const speaker of speakers) {
+    const turns = countSpeakerLines(meeting.transcript, speaker.label)
+    lines.push(`- [${speaker.id}] ${speaker.label}${turns > 0 ? ` · ${turns} 段` : ''}`)
+  }
+  lines.push('可以用 meeting_speakers（action=rename, speakerId=..., name=张三）把说话人改成人名，转写里的旧标签会同步替换。')
+  return lines.join('\n')
+}
+
 /**
  * Register the meeting tools.
  * @param ctx - Cordis context carrying the `tools` service.
@@ -102,7 +124,7 @@ export function describeMeeting(meeting, options = {}) {
  * @returns disposers for every registration.
  */
 export function registerTools(ctx, deps) {
-  const { store, asr, summarizer, calendar, autoIngest } = deps
+  const { store, asr, summarizer, calendar, autoIngest, speakerTagger } = deps
   const disposers = []
 
   disposers.push(ctx.tools.register({
@@ -426,6 +448,49 @@ export function registerTools(ctx, deps) {
         status.recent.length === 0 ? '' : `- 最近自动导入：${status.recent.map((entry) => entry.title || entry.path).join('；')}`,
       ].filter((line) => line !== '')
       return lines.join('\n')
+    },
+  }))
+
+  disposers.push(ctx.tools.register({
+    name: 'meeting_speakers',
+    description: [
+      '查看或修改一场会议的说话人标签。实时录音转写时会用本地声纹识别自动给每段文本加「说话人N：」前缀。',
+      'action=list 列出已识别的说话人与各自的段数；action=rename 把某个 speakerId 改成人名（如 说话人1 → 张三），',
+      '并同步替换 transcript 与 transcriptRaw 里的旧前缀。导入的录音/文本没有说话人信息。',
+    ].join(''),
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string', description: '会议 id' },
+        match: { type: 'string', description: '标题关键词（唯一匹配时使用）' },
+        action: { type: 'string', enum: ['list', 'rename'], description: '操作：list 查看，rename 改名' },
+        speakerId: { type: 'string', description: 'action=rename 时的说话人 id（如 speaker-1）' },
+        name: { type: 'string', description: 'action=rename 时的新名字（如 张三）' },
+      },
+      required: ['action'],
+    },
+    output: TEXT_OUTPUT,
+    async execute(args) {
+      await store.load()
+      const meeting = locate(store, args)
+      const action = typeof args?.action === 'string' ? args.action.trim() : 'list'
+      if (action === 'list') return describeSpeakers(meeting)
+      if (action !== 'rename') throw new Error(`未知 action：${action}（可用 list / rename）`)
+      const speakerId = requireText(args?.speakerId, 'speakerId')
+      const name = requireText(args?.name, 'name')
+      if (!meeting.speakers.some((entry) => entry.id === speakerId)) {
+        const error = new Error(`未找到说话人：${speakerId}（先用 action=list 查看）`)
+        error.status = 404
+        throw error
+      }
+      const updated = await store.renameSpeaker(meeting.id, speakerId, name)
+      try {
+        if (typeof speakerTagger?.rename === 'function') speakerTagger.rename(meeting.id, speakerId, name)
+      } catch {
+        // The in-memory registry is an optimization; the store is the truth.
+      }
+      return [`已把 ${speakerId} 重命名为「${name}」，转写里的旧标签已同步替换。`, describeSpeakers(updated)].join('\n')
     },
   }))
 
