@@ -13,7 +13,7 @@
  * 输出：每行一条 JSON 事件（created / recording / finalized），便于上层解析。
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 
 import { encodeWavPcm16 } from '../lib/audio.js'
 
@@ -40,7 +40,33 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2))
 const base = String(args.url ?? 'http://127.0.0.1:52353').replace(/\/+$/, '')
-const device = String(args.device ?? '2')
+/**
+ * Resolve the avfoundation audio device index.
+ *
+ * `--device 2` passes a raw index; any non-numeric value (e.g. `--device MacBook`)
+ * is matched against the device list, because macOS renumbers inputs whenever a
+ * USB dongle or iPhone mic comes and goes — a hard-coded index silently records
+ * nothing ("Invalid audio device index").
+ */
+function resolveDevice(value) {
+  const raw = String(value ?? '').trim()
+  if (/^\d+$/.test(raw)) return raw
+  const listing = spawnSync('ffmpeg', ['-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', ''], { encoding: 'utf8' })
+  const text = `${listing.stdout ?? ''}${listing.stderr ?? ''}`
+  // ffmpeg prints video devices first, then audio devices — take the audio tail.
+  const audioSection = text.split('AVFoundation audio devices')[1] ?? ''
+  const entries = [...audioSection.matchAll(/\[(\d+)\]\s+([^\n]+)/g)].map((match) => ({
+    index: match[1],
+    name: match[2].trim(),
+  }))
+  const wanted = raw === '' ? '' : raw.toLowerCase()
+  const hit = entries.find((entry) => entry.name.toLowerCase().includes(wanted))
+  if (hit !== undefined) return hit.index
+  if (entries.length === 1) return entries[0].index
+  throw new Error(`找不到匹配「${raw}」的音频输入设备；可用：${entries.map((entry) => `${entry.index}=${entry.name}`).join(', ') || '无'}`)
+}
+
+const device = resolveDevice(args.device ?? 'MacBook')
 const seconds = Number(args.seconds ?? 0)
 const sliceBytes = SAMPLE_RATE * 2 * SLICE_SECONDS
 
