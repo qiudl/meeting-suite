@@ -47,7 +47,34 @@ export function listLiveSessions() {
     .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))
 }
 
+/** Meetings an operator asked to stop (the recorder polls this). */
+const stopRequests = new Set()
+
+/** Ask the recorder of one meeting to stop; the CLI polls `/state`. */
+export function requestStop(meetingId) {
+  const id = String(meetingId ?? '').trim()
+  if (id === '') return false
+  stopRequests.add(id)
+  return true
+}
+
+/** Has a stop been requested for this meeting? */
+export function isStopRequested(meetingId) {
+  return stopRequests.has(String(meetingId ?? '').trim())
+}
+
+/** Forget a stop request (after finalize, cancel or delete). */
+export function clearStopRequest(meetingId) {
+  return stopRequests.delete(String(meetingId ?? '').trim())
+}
+
+/** Every pending stop request, for `/state`. */
+export function listStopRequests() {
+  return [...stopRequests]
+}
+
 /** Test hook: forget everything. */
 export function resetLiveSessions() {
   sessions.clear()
+  stopRequests.clear()
 }

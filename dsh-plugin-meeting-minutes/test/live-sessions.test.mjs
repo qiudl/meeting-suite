@@ -7,7 +7,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { clearLiveSession, listLiveSessions, resetLiveSessions, touchLiveSession } from '../lib/live-sessions.js'
+import {
+  clearLiveSession,
+  clearStopRequest,
+  isStopRequested,
+  listLiveSessions,
+  listStopRequests,
+  requestStop,
+  resetLiveSessions,
+  touchLiveSession,
+} from '../lib/live-sessions.js'
 
 test('touchLiveSession creates an entry on the first slice and counts slices', () => {
   resetLiveSessions()
@@ -52,4 +61,25 @@ test('listLiveSessions returns copies, newest start first', async () => {
   assert.notEqual(listLiveSessions()[0].title, 'mutated')
   const order = listLiveSessions().map((entry) => entry.meetingId)
   assert.deepEqual(order, ['mt_new', 'mt_old'])
+})
+
+test('stop requests are recorded once and can be cleared', () => {
+  resetLiveSessions()
+  assert.equal(isStopRequested('mt_a'), false)
+  assert.equal(requestStop('mt_a'), true)
+  assert.equal(isStopRequested('mt_a'), true)
+  assert.deepEqual(listStopRequests(), ['mt_a'])
+  assert.equal(clearStopRequest('mt_a'), true)
+  assert.equal(clearStopRequest('mt_a'), false)
+  assert.deepEqual(listStopRequests(), [])
+})
+
+test('requestStop ignores empty ids and reset clears both registries', () => {
+  resetLiveSessions()
+  assert.equal(requestStop(''), false)
+  touchLiveSession({ meetingId: 'mt_b', title: 'B' })
+  requestStop('mt_b')
+  resetLiveSessions()
+  assert.deepEqual(listLiveSessions(), [])
+  assert.deepEqual(listStopRequests(), [])
 })

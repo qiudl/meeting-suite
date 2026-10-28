@@ -16,7 +16,14 @@ import { formatMoment, isGenericTitle, localDay, projectMeeting, todoProgress } 
 import { sortMeetings } from './store.js'
 import { exportMeeting } from './export.js'
 import { resolveStoredAudio, clearAudioParts, finalizeAudioParts, storeAudio, storeAudioPart } from './audio-store.js'
-import { clearLiveSession, listLiveSessions, touchLiveSession } from './live-sessions.js'
+import {
+  clearLiveSession,
+  clearStopRequest,
+  listLiveSessions,
+  listStopRequests,
+  requestStop,
+  touchLiveSession,
+} from './live-sessions.js'
 
 /** Registered prefix; the client builds its URLs from the same constant. */
 export const ROUTE_PREFIX = '/dsh-meeting'
@@ -107,6 +114,7 @@ export async function buildState(deps) {
     clock: formatMoment(),
     autoIngest: auto,
     activeRecording: listLiveSessions(),
+    stopRequested: listStopRequests(),
     config: {
       llm: summarizer.describeRoute(),
       asr: {
@@ -255,6 +263,8 @@ export function registerRoutes(ctx, deps) {
           // A discarded live recording leaves temporary slices behind; drop them.
           await clearAudioParts({ meetingId: id })
           clearLiveSession(id)
+          clearStopRequest(id)
+          clearStopRequest(id)
           sendJson(res, removed === null ? 404 : 200, removed === null ? { ok: false, error: '未找到会议' } : { ok: true })
           return
         }
@@ -372,6 +382,13 @@ export function registerRoutes(ctx, deps) {
           })
           return
         }
+      }
+
+      if (segments.length === 4 && segments[2] === 'audio' && segments[3] === 'stop' && method === 'POST') {
+        requireMeeting(store, id)
+        requestStop(id)
+        sendJson(res, 200, { ok: true, meetingId: id, stopRequested: true })
+        return
       }
 
       if (segments.length === 4 && segments[2] === 'audio' && segments[3] === 'finalize' && method === 'POST') {

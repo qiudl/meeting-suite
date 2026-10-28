@@ -86,6 +86,7 @@ let index = 0
 let pending = Buffer.alloc(0)
 let posting = Promise.resolve()
 let finalized = false
+let stopTimer = null
 
 /** 把一片 PCM 编码成 WAV 并按 live 模式上传（该模式只暂存，不落副本）。 */
 function postSlice(buffer) {
@@ -125,6 +126,7 @@ ffmpeg.on('error', (error) => {
 async function stop(reason) {
   if (finalized) return
   finalized = true
+  if (stopTimer !== null) clearInterval(stopTimer)
   try {
     ffmpeg.kill('SIGINT')
   } catch {
@@ -151,4 +153,26 @@ async function stop(reason) {
 process.on('SIGINT', () => { void stop('SIGINT') })
 process.on('SIGTERM', () => { void stop('SIGTERM') })
 if (Number.isFinite(seconds) && seconds > 0) setTimeout(() => { void stop('timeout') }, seconds * 1000)
+/**
+ * Poll `/state` for an operator stop request: the page's 「停止录音」 button POSTs
+ * `/meetings/:id/audio/stop`, and this is what turns that click into a finalize —
+ * the recorder owns the microphone, so the server can only flag the intent.
+ */
+function watchStopRequests() {
+  stopTimer = setInterval(async () => {
+    try {
+      const response = await fetch(`${base}/dsh-meeting/state`)
+      const data = await response.json()
+      const requested = Array.isArray(data?.stopRequested) && data.stopRequested.includes(id)
+      if (requested) {
+        clearInterval(stopTimer)
+        await stop('requested')
+      }
+    } catch {
+      // a transient host hiccup just means we try again on the next tick
+    }
+  }, 2000)
+}
+watchStopRequests()
+
 console.log(JSON.stringify({ event: 'recording', id, device, sliceSeconds: SLICE_SECONDS, seconds }))
