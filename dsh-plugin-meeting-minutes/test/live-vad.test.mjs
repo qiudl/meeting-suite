@@ -198,3 +198,42 @@ test('停顿配置只接受 1.5 / 3 / 5，非法值回退 3，storage key 固定
   assert.equal(core.LIVE_VAD_SILENCE_KEY, 'dsh.meeting.vad.silenceSeconds')
   assert.equal(core.LIVE_VAD_DEFAULT_SILENCE_SECONDS, 3)
 })
+
+// ── 宿主/脚本共用的同一套算法（lib/live-vad.js）──
+// 浏览器半是手写 bundle 不能 import 模块，所以两处各有一份实现；这里用同一串
+// 合成音频同时喂两边，确保行为不漂移。
+test('lib/live-vad.js 与客户端内联实现切出同样的片段', async () => {
+  const { createLiveVad } = await import('../lib/live-vad.js')
+  const clientCore = loadVadCore()
+
+  /** 16k 10ms 帧：语音 0.2 / 静音 0.0005，便于两侧完全一致地判定。 */
+  const script = []
+  const push = (seconds, amplitude) => {
+    const frames = Math.round(seconds / 0.01)
+    for (let index = 0; index < frames; index += 1) {
+      const frame = new Float32Array(160).fill(amplitude)
+      script.push(frame)
+    }
+  }
+  push(0.5, 0)     // 房间底噪
+  push(0.9, 0.2)   // 第一句
+  push(3.2, 0)     // 停顿 3 秒 → 切
+  push(0.7, 0.2)   // 第二句
+  push(3.2, 0)     // 停顿 → 切
+
+  const run = (create) => {
+    const vad = create({ sampleRate: 16000, silenceSeconds: 3 })
+    const slices = []
+    for (const frame of script) {
+      for (const slice of vad.push(frame)) slices.push(slice.samples.length)
+    }
+    const tail = vad.flush()
+    if (tail !== null) slices.push(tail.samples.length)
+    return slices
+  }
+
+  const clientSlices = run(clientCore.createLiveVad)
+  const moduleSlices = run(createLiveVad)
+  assert.deepEqual(moduleSlices, clientSlices)
+  assert.equal(moduleSlices.length, 2, '两句话各切一片，尾部静音不单独成片')
+})

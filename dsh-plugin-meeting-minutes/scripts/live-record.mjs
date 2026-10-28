@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * 无人值守本地录音：一条命令完成「建会议 → 抓麦克风 → 按停顿切片走 live 转写 → 停录合并」。
+ * 无人值守本地录音：一条命令完成「建会议（或复用已有会议）→ 抓麦克风 → 按停顿切片
+ * （VAD，默认停顿 3 秒）走 live 转写 → 停录合并」。
  *
  * 这样 agent 用一次工具调用就能开会录音，不需要在面板里点按钮，也不依赖系统默认
  * 输入设备（显式指定 avfoundation 音频设备序号）。
@@ -8,6 +9,7 @@
  * 用法：
  *   node scripts/live-record.mjs --url http://127.0.0.1:52353 --device 2 \
  *     --title "演示：会议纪要与任务日历（真实录音）" --seconds 60
+ *   复用已建会议：加 --meeting <会议 id>（不再新建）；停顿阈值：--silence-seconds 3（可选 1.5/3/5）。
  *
  * 停止：SIGINT/SIGTERM（或到 --seconds 自动停）→ 触发 /audio/finalize 落整场副本。
  * 输出：每行一条 JSON 事件（created / recording / finalized），便于上层解析。
@@ -16,9 +18,9 @@
 import { spawn, spawnSync } from 'node:child_process'
 
 import { encodeWavPcm16 } from '../lib/audio.js'
+import { createLiveVad } from '../lib/live-vad.js'
 
 const SAMPLE_RATE = 16000
-const SLICE_SECONDS = 5
 
 /** 极简 `--key value` 参数解析。 */
 function parseArgs(argv) {
@@ -68,7 +70,11 @@ function resolveDevice(value) {
 
 const device = resolveDevice(args.device ?? 'MacBook')
 const seconds = Number(args.seconds ?? 0)
-const sliceBytes = SAMPLE_RATE * 2 * SLICE_SECONDS
+const silenceSecondsArg = Number(args['silence-seconds'] ?? 3)
+const SILENCE_SECONDS = Number.isFinite(silenceSecondsArg) && silenceSecondsArg > 0 && silenceSecondsArg <= 10
+  ? Math.round(silenceSecondsArg * 10) / 10
+  : 3
+const vad = createLiveVad({ sampleRate: SAMPLE_RATE, silenceSeconds: SILENCE_SECONDS })
 
 const now = new Date()
 const pad = (value) => String(value).padStart(2, '0')
@@ -87,14 +93,21 @@ async function api(path, options = {}) {
   return payload
 }
 
-const created = await api('/meetings', {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ title, date, sourceType: 'recording' }),
-})
-const id = created?.meeting?.id
-if (!id) throw new Error('创建会议失败：接口没有返回会议 id')
-console.log(JSON.stringify({ event: 'created', id, title, date }))
+const requestedMeeting = typeof args.meeting === 'string' && args.meeting.trim() !== '' ? args.meeting.trim() : ''
+let id = requestedMeeting
+if (id === '') {
+  const created = await api('/meetings', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title, date, sourceType: 'recording' }),
+  })
+  id = created?.meeting?.id
+  if (!id) throw new Error('创建会议失败：接口没有返回会议 id')
+  console.log(JSON.stringify({ event: 'created', id, title, date }))
+} else {
+  // Reuse an existing meeting (the agent may already have created it with the agenda).
+  console.log(JSON.stringify({ event: 'attached', id }))
+}
 
 const ffmpeg = spawn(
   'ffmpeg',
@@ -109,17 +122,21 @@ const ffmpeg = spawn(
 )
 
 let index = 0
-let pending = Buffer.alloc(0)
+/** 不足一个 16-bit 样本的残余字节，跨 chunk 拼起来再交给 VAD。 */
+let pendingBytes = Buffer.alloc(0)
 let posting = Promise.resolve()
 let finalized = false
 let stopTimer = null
 
-/** 把一片 PCM 编码成 WAV 并按 live 模式上传（该模式只暂存，不落副本）。 */
-function postSlice(buffer) {
-  const even = buffer.length - (buffer.length % 2)
-  if (even === 0) return
-  const samples = new Int16Array(buffer.buffer, buffer.byteOffset, even / 2)
-  const wav = encodeWavPcm16(samples, SAMPLE_RATE)
+/** 把 VAD 切出的一段 Float32 采样编码成 WAV 并按 live 模式上传（只暂存，不落副本）。 */
+function postSlice(samples) {
+  if (!samples || samples.length === 0) return
+  const int16 = new Int16Array(samples.length)
+  for (let i = 0; i < samples.length; i += 1) {
+    const clamped = Math.max(-1, Math.min(1, samples[i]))
+    int16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
+  }
+  const wav = encodeWavPcm16(int16, SAMPLE_RATE)
   const slice = index
   index += 1
   posting = posting
@@ -134,11 +151,13 @@ function postSlice(buffer) {
 }
 
 ffmpeg.stdout.on('data', (chunk) => {
-  pending = Buffer.concat([pending, chunk])
-  while (pending.length >= sliceBytes) {
-    postSlice(pending.subarray(0, sliceBytes))
-    pending = pending.subarray(sliceBytes)
-  }
+  pendingBytes = Buffer.concat([pendingBytes, chunk])
+  const usable = pendingBytes.length - (pendingBytes.length % 2)
+  if (usable === 0) return
+  const pcm = new Int16Array(pendingBytes.buffer, pendingBytes.byteOffset, usable / 2)
+  const samples = Float32Array.from(pcm, (value) => value / 32768)
+  pendingBytes = pendingBytes.subarray(usable)
+  for (const slice of vad.push(samples)) postSlice(slice.samples)
 })
 ffmpeg.stderr.on('data', (chunk) => {
   const text = String(chunk).trim()
@@ -158,8 +177,16 @@ async function stop(reason) {
   } catch {
     // ffmpeg 可能已经退出
   }
-  if (pending.length > 0) postSlice(pending)
-  pending = Buffer.alloc(0)
+  const tail = vad.flush()
+  if (tail !== null && tail.samples.length > 0) postSlice(tail.samples)
+  if (pendingBytes.length > 0) {
+    const usable = pendingBytes.length - (pendingBytes.length % 2)
+    if (usable > 0) {
+      const pcm = new Int16Array(pendingBytes.buffer, pendingBytes.byteOffset, usable / 2)
+      postSlice(Float32Array.from(pcm, (value) => value / 32768))
+    }
+    pendingBytes = Buffer.alloc(0)
+  }
   await posting
   try {
     const result = await api(`/meetings/${id}/audio/finalize`, { method: 'POST' })
@@ -201,4 +228,4 @@ function watchStopRequests() {
 }
 watchStopRequests()
 
-console.log(JSON.stringify({ event: 'recording', id, device, sliceSeconds: SLICE_SECONDS, seconds }))
+console.log(JSON.stringify({ event: 'recording', id, device, silenceSeconds: SILENCE_SECONDS, maxSentenceSeconds: 10, seconds }))

@@ -54,6 +54,11 @@ export const SPEAKER_MAX_SPEAKERS = 8
 
 /** 短于这个时长的切片不参与识别（避免把噪声注册成新说话人）。 */
 export const SPEAKER_MIN_SECONDS = 1.2
+/**
+ * 低于这个 RMS 的切片当静音处理，直接不加标签：固定切片的录音器会把静音/房间
+ * 噪声也送进来，那种向量只会污染注册表（实测会凭空多出说话人）。
+ */
+export const SPEAKER_MIN_RMS = 0.003
 
 /** 命中后质心的指数移动平均系数。 */
 export const SPEAKER_EMA_ALPHA = 0.3
@@ -547,6 +552,9 @@ export function createSpeakerTagger(options = {}) {
         return null
       }
       if (samples.length < minSamples) return null
+      let energy = 0
+      for (let index = 0; index < samples.length; index += 1) energy += samples[index] * samples[index]
+      if (Math.sqrt(energy / samples.length) < SPEAKER_MIN_RMS) return null
       let vector
       try {
         vector = extractEmbedding(active, samples)

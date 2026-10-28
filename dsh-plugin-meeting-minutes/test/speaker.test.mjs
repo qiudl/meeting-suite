@@ -514,3 +514,43 @@ test('Slark runtime 自带的已签名 sherpa 优先于插件本地副本', asyn
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('静音切片不进入声纹注册表（固定切片的录音器会送静音进来）', async () => {
+  const { createSpeakerTagger } = await import('../lib/speaker.js')
+  const home = await mkdtemp(join(tmpdir(), 'meeting-speaker-silence-'))
+  try {
+    let extracted = 0
+    const tagger = createSpeakerTagger({
+      home,
+      loadExtractor: async () => {
+        const fake = {
+          dim: 2,
+          createStream() {
+            const stream = {}
+            stream.acceptWaveform = () => {}
+            return stream
+          },
+          compute() {
+            extracted += 1
+            return new Float32Array([1, 0])
+          },
+        }
+        return fake
+      },
+    })
+    // 2 秒、RMS≈0.0006 的底噪：低于 SPEAKER_MIN_RMS，应该直接跳过。
+    const quiet = new Int16Array(32000).fill(20)
+    assert.equal(await tagger.identify(encodeWavPcm16(quiet), { meetingId: 'silent' }), null)
+    assert.equal(extracted, 0, '静音片段不应调用声纹提取器')
+    assert.deepEqual(tagger.list('silent'), [])
+
+    // 同样长度但音量正常：应该提取并注册第一位说话人。
+    const loud = new Int16Array(32000)
+    for (let index = 0; index < loud.length; index += 1) loud[index] = index % 2 === 0 ? 12000 : -12000
+    const tagged = await tagger.identify(encodeWavPcm16(loud), { meetingId: 'silent' })
+    assert.ok(tagged !== null, '正常音量的切片应该被标注')
+    assert.equal(extracted, 1)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
