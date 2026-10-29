@@ -223,7 +223,7 @@ export function registerTools(ctx, deps) {
   disposers.push(ctx.tools.register({
     name: 'meeting_transcribe',
     description: [
-      '把本机一段录音/视频文件转成文字，并自动新建会议记录（本机 SenseVoice 离线识别，16kHz 单声道 WAV，长音频自动切片）。',
+      '把本机一段录音/视频文件转成文字，并自动新建会议记录。默认走本机 VoiceStudio（accurate + 说话人分离，转写里带「说话人N：」前缀、可再用 meeting_speakers 改名）；VoiceStudio 没开时自动回退宿主的 SenseVoice 离线识别。',
       '支持 wav/mp3/m4a/mp4/aac 等；非 16kHz WAV 会先用 macOS afconvert 转换。',
       '转写前会把音频复制到会议数据目录并记录 sha256，转写失败也保留副本，可对同一会议重试。',
       '典型用法：用户说“把这个会议录音转成纪要”，你先找到文件绝对路径，再调用本工具；随后调用 meeting_summarize。',
@@ -291,11 +291,27 @@ export function registerTools(ctx, deps) {
       }
       const updated = await store.appendTranscript(meeting.id, result.text, result.audioSeconds)
       await store.patch(meeting.id, { audioSeconds: result.audioSeconds, audioError: '' })
+      // VoiceStudio 的 diarization 结果：把说话人登记进会议，transcript 里的
+      // 「说话人N：」前缀就能被 meeting_speakers 改名（和实时录音同一套链路）。
+      let speakerNote = ''
+      if (Array.isArray(result.speakers) && result.speakers.length > 0) {
+        try {
+          await store.setSpeakers(meeting.id, result.speakers)
+          speakerNote = `说话人：识别出 ${result.speakers.length} 位（可用 meeting_speakers 改名）`
+        } catch (error) {
+          speakerNote = `说话人登记失败：${error instanceof Error ? error.message : String(error)}`
+        }
+      }
+      const backendNote = result.backend === 'voicestudio'
+        ? `转写后端：VoiceStudio（accurate${result.diarizationError === '' ? '' : `，说话人分离失败：${result.diarizationError}`}）`
+        : '转写后端：宿主 SenseVoice'
       const preview = result.text.length > 500 ? `${result.text.slice(0, 500)}…` : result.text
       const label = audioSourceLabel(updated ?? meeting)
       return [
         `已转写 ${Math.round(result.audioSeconds)} 秒音频并创建会议：${meetingLine(updated ?? meeting)}`,
         label === '' ? '' : `录音来源：${label}`,
+        backendNote,
+        speakerNote,
         `识别耗时 ${Math.round(result.inferenceSeconds)} 秒，文本 ${result.text.length} 字。`,
         duplicateLine,
         '识别结果预览：',

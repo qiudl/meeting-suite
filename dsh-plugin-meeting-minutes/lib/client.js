@@ -3349,7 +3349,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       const subtitle = liveStatus === 'preparing'
         ? '正在启动语音识别，就绪后自动开始录音。'
         : liveStatus === 'recording'
-          ? '停顿约 3 秒自动切出一句；转写约 6–10 秒延迟，关闭弹窗后仍在后台录音。'
+          ? '停顿约 3 秒自动切出一句；说完停 3 秒左右就出字，关闭弹窗后仍在后台录音。'
           : liveStatus === 'stopping'
             ? '正在等待最后几段识别结果，完成后自动保存。'
             : liveStatus === 'done' || liveStatus === 'error'
@@ -3401,7 +3401,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
               h('div', { className: 'dsm-live-last-label' }, '最近一句'),
               live.lastText !== ''
                 ? live.lastText
-                : (preparing ? '等待语音模型就绪…' : '等待第一段识别结果…（约 6–10 秒）'),
+                : (preparing ? '等待语音模型就绪…' : '等待第一段识别结果…（先说一句，停顿约 3 秒即出字）'),
             ),
             preparing ? h(SpeechProgressCard, { key: 'speech' }) : null,
             stopping
@@ -4612,7 +4612,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
             h('div', { className: 'dsm-entry-icon' }, h(Icon, { name: 'mic', size: 17 })),
             h('div', { className: 'dsm-entry-title' }, '录音转文字'),
             h('div', { className: 'dsm-entry-text' }, speechAvailable
-              ? '边说边出字，约 6–10 秒延迟，可后台录音'
+              ? '边说边出字，停顿约 3 秒即切（可调 1.5/3/5 秒），可后台录音'
               : '语音识别服务未就绪，可先在顶部预加载，或改用文本导入'),
           ),
           h(
