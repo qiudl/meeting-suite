@@ -185,18 +185,18 @@ test('停录 drain：残余不足 200ms 丢弃，够长则带尾部静音上限�
   assert.equal(empty.flush(), null)
 })
 
-test('停顿配置只接受 1.5 / 3 / 5，非法值回退 3，storage key 固定', () => {
+test('停顿配置只接受 1.5 / 3 / 5，非法值回退默认 1.5，storage key 固定', () => {
   const core = loadVadCore()
   assert.equal(core.normalizeVadSilenceSeconds('1.5'), 1.5)
   assert.equal(core.normalizeVadSilenceSeconds(3), 3)
   assert.equal(core.normalizeVadSilenceSeconds('5'), 5)
-  assert.equal(core.normalizeVadSilenceSeconds(7), 3)
-  assert.equal(core.normalizeVadSilenceSeconds('abc'), 3)
-  assert.equal(core.normalizeVadSilenceSeconds(null), 3)
-  assert.equal(core.normalizeVadSilenceSeconds(undefined), 3)
+  assert.equal(core.normalizeVadSilenceSeconds(7), 1.5)
+  assert.equal(core.normalizeVadSilenceSeconds('abc'), 1.5)
+  assert.equal(core.normalizeVadSilenceSeconds(null), 1.5)
+  assert.equal(core.normalizeVadSilenceSeconds(undefined), 1.5)
   assert.deepEqual([...core.LIVE_VAD_SILENCE_OPTIONS], [1.5, 3, 5])
   assert.equal(core.LIVE_VAD_SILENCE_KEY, 'dsh.meeting.vad.silenceSeconds')
-  assert.equal(core.LIVE_VAD_DEFAULT_SILENCE_SECONDS, 3)
+  assert.equal(core.LIVE_VAD_DEFAULT_SILENCE_SECONDS, 1.5)
 })
 
 // ── 宿主/脚本共用的同一套算法（lib/live-vad.js）──
@@ -236,4 +236,14 @@ test('lib/live-vad.js 与客户端内联实现切出同样的片段', async () =
   const moduleSlices = run(createLiveVad)
   assert.deepEqual(moduleSlices, clientSlices)
   assert.equal(moduleSlices.length, 2, '两句话各切一片，尾部静音不单独成片')
+})
+
+test('未指定停顿阈值时按默认 1.5 秒切段', () => {
+  const { createLiveVad, LIVE_VAD_DEFAULT_SILENCE_SECONDS } = loadVadCore()
+  assert.equal(LIVE_VAD_DEFAULT_SILENCE_SECONDS, 1.5)
+  const vad = createLiveVad({})
+  const chunks = feedBlockwise(vad, concat(tone(0.8), silence(1.5)))
+  assert.equal(chunks.length, 1)
+  assert.equal(chunks[0].reason, 'silence')
+  assert.equal(vad.getState().silenceTargetSeconds, 1.5)
 })

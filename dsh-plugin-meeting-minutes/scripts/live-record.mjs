@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 无人值守本地录音：一条命令完成「建会议（或复用已有会议）→ 抓麦克风 → 按停顿切片
- * （VAD，默认停顿 3 秒）走 live 转写 → 停录合并」。
+ * （VAD，默认停顿 1.5 秒）走 live 转写 → 停录合并」。
  *
  * 这样 agent 用一次工具调用就能开会录音，不需要在面板里点按钮，也不依赖系统默认
  * 输入设备（显式指定 avfoundation 音频设备序号）。
@@ -9,7 +9,7 @@
  * 用法：
  *   node scripts/live-record.mjs --url http://127.0.0.1:52353 --device 2 \
  *     --title "演示：会议纪要与任务日历（真实录音）" --seconds 60
- *   复用已建会议：加 --meeting <会议 id>（不再新建）；停顿阈值：--silence-seconds 3（可选 1.5/3/5）。
+ *   复用已建会议：加 --meeting <会议 id>（不再新建）；停顿阈值：--silence-seconds 1.5（可选 3/5）。
  *
  * 停止：SIGINT/SIGTERM（或到 --seconds 自动停）→ 触发 /audio/finalize 落整场副本。
  * 输出：每行一条 JSON 事件（created / recording / finalized），便于上层解析。
@@ -70,10 +70,10 @@ function resolveDevice(value) {
 
 const device = resolveDevice(args.device ?? 'MacBook')
 const seconds = Number(args.seconds ?? 0)
-const silenceSecondsArg = Number(args['silence-seconds'] ?? 3)
+const silenceSecondsArg = Number(args['silence-seconds'] ?? 1.5)
 const SILENCE_SECONDS = Number.isFinite(silenceSecondsArg) && silenceSecondsArg > 0 && silenceSecondsArg <= 10
   ? Math.round(silenceSecondsArg * 10) / 10
-  : 3
+  : 1.5
 const vad = createLiveVad({ sampleRate: SAMPLE_RATE, silenceSeconds: SILENCE_SECONDS })
 
 const now = new Date()

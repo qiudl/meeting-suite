@@ -61,8 +61,8 @@ window.__ModuleLoader__.load({
     // emitted slice into one rolling transcription request.
 
     /** Pause length before a sentence is sliced when nothing else is stored. */
-    const LIVE_VAD_DEFAULT_SILENCE_SECONDS = 3
-    /** User-selectable pause lengths, in seconds; anything else falls back to 3. */
+    const LIVE_VAD_DEFAULT_SILENCE_SECONDS = 1.5
+    /** User-selectable pause lengths, in seconds; anything else falls back to the default. */
     const LIVE_VAD_SILENCE_OPTIONS = [1.5, 3, 5]
     /** Browser storage key for the pause preference (applies to the next take). */
     const LIVE_VAD_SILENCE_KEY = 'dsh.meeting.vad.silenceSeconds'
@@ -84,7 +84,7 @@ window.__ModuleLoader__.load({
     /** Sample rate used when the caller does not provide one. */
     const LIVE_VAD_SAMPLE_RATE = 16000
 
-    /** Coerce a stored/select value into one of 1.5 / 3 / 5 (default 3). */
+    /** Coerce a stored/select value into one of 1.5 / 3 / 5 (default 1.5). */
     function normalizeVadSilenceSeconds(value) {
       const seconds = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''))
       for (const option of LIVE_VAD_SILENCE_OPTIONS) {
@@ -1659,7 +1659,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
         && (live.status === 'preparing' || live.status === 'recording' || live.status === 'stopping')
     }
 
-    /** Pause preference from the browser (defaults to 3 s; never throws). */
+    /** Pause preference from the browser (defaults to 1.5 s; never throws). */
     function readVadSilenceSeconds() {
       try {
         return normalizeVadSilenceSeconds(window.localStorage.getItem(LIVE_VAD_SILENCE_KEY))
@@ -3349,7 +3349,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
       const subtitle = liveStatus === 'preparing'
         ? '正在启动语音识别，就绪后自动开始录音。'
         : liveStatus === 'recording'
-          ? '停顿约 3 秒自动切出一句；说完停 3 秒左右就出字，关闭弹窗后仍在后台录音。'
+          ? '停顿约 1.5 秒自动切出一句；说完停一两秒就出字，关闭弹窗后仍在后台录音。'
           : liveStatus === 'stopping'
             ? '正在等待最后几段识别结果，完成后自动保存。'
             : liveStatus === 'done' || liveStatus === 'error'
@@ -3401,7 +3401,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
               h('div', { className: 'dsm-live-last-label' }, '最近一句'),
               live.lastText !== ''
                 ? live.lastText
-                : (preparing ? '等待语音模型就绪…' : '等待第一段识别结果…（先说一句，停顿约 3 秒即出字）'),
+                : (preparing ? '等待语音模型就绪…' : '等待第一段识别结果…（先说一句，停顿约 1.5 秒即出字）'),
             ),
             preparing ? h(SpeechProgressCard, { key: 'speech' }) : null,
             stopping
@@ -3513,7 +3513,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
             })),
           ),
           h('div', { key: 'hint', className: 'dsm-hint' }, tab === 'record'
-            ? '停顿约 3 秒自动切出一句（浮条上可改成 1.5 / 5 秒）；标题可留空，会自动命名，之后可改。可在后台录音，关闭弹窗不中断。'
+            ? '停顿约 1.5 秒自动切出一句（浮条上可改成 3 / 5 秒）；标题可留空，会自动命名，之后可改。可在后台录音，关闭弹窗不中断。'
             : '文件转写仍使用浏览器解码 → 16kHz 单声道 PCM16 WAV → 90 秒切片逐段识别；支持 WAV / MP3 / M4A / MP4 / WebM。'),
           speechAvailable
             ? null
@@ -4612,7 +4612,7 @@ button.dsm-chip:hover:not(:disabled){color:var(--dsw-alias-label-primary);border
             h('div', { className: 'dsm-entry-icon' }, h(Icon, { name: 'mic', size: 17 })),
             h('div', { className: 'dsm-entry-title' }, '录音转文字'),
             h('div', { className: 'dsm-entry-text' }, speechAvailable
-              ? '边说边出字，停顿约 3 秒即切（可调 1.5/3/5 秒），可后台录音'
+              ? '边说边出字，停顿约 1.5 秒即切（可调 3/5 秒），可后台录音'
               : '语音识别服务未就绪，可先在顶部预加载，或改用文本导入'),
           ),
           h(

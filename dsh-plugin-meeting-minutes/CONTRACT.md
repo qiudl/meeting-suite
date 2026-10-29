@@ -135,7 +135,7 @@ Meeting（完整）：
 - 说话人：转写带标签时行首是 `说话人N：`；`GET /meetings/:id/speakers` 拿 `speakers: [{id, label}]`，
   改名调 `POST /meetings/:id/speakers/:speakerId/rename { name }`，成功后重新 `GET /meetings/:id`。
   实时转写的切段由本地 VAD 决定，停顿时长阈值存浏览器端
-  `localStorage['dsh.meeting.vad.silenceSeconds']`（支持 `1.5 / 3 / 5`，默认 `3`）。
+  `localStorage['dsh.meeting.vad.silenceSeconds']`（支持 `1.5 / 3 / 5`，默认 `1.5`）。
 - 界面只用 `--dsw-alias-*` 主题 token；不要引用任何 Harness Client 包（除 React/jsx-runtime）。
 - 侧栏图标：`sidebar.panellist`，`id: 'meeting-minutes'`, `label: '会议纪要'`, glyph 为
   `<svg currentColor>`；主面板：`main` key `'meeting-minutes'`。

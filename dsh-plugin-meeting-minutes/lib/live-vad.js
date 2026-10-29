@@ -2,7 +2,7 @@
  * 会议纪要插件 · 停顿切片 VAD（宿主 / 脚本共用）
  *
  * 与浏览器半 `lib/client.js` 里的 `live-vad-core` 区是同一套算法：10ms 分析帧的
- * 能量 VAD，静音累计到阈值（默认 3 秒，可选 1.5/3/5）就切出一句；连续说话到
+ * 能量 VAD，静音累计到阈值（默认 1.5 秒，可选 3/5 秒）就切出一句；连续说话到
  * 上限（默认 10 秒）强制切；切片带 300ms 前导余音、尾部静音裁到 200ms，噪声底
  * 慢速自适应。
  *
@@ -19,8 +19,8 @@
 // emitted slice into one rolling transcription request.
 
 /** Pause length before a sentence is sliced when nothing else is stored. */
-const LIVE_VAD_DEFAULT_SILENCE_SECONDS = 3
-/** User-selectable pause lengths, in seconds; anything else falls back to 3. */
+const LIVE_VAD_DEFAULT_SILENCE_SECONDS = 1.5
+/** User-selectable pause lengths, in seconds; anything else falls back to the default. */
 const LIVE_VAD_SILENCE_OPTIONS = [1.5, 3, 5]
 /** Browser storage key for the pause preference (applies to the next take). */
 const LIVE_VAD_SILENCE_KEY = 'dsh.meeting.vad.silenceSeconds'
@@ -42,7 +42,7 @@ const LIVE_VAD_NOISE_ALPHA = 0.01
 /** Sample rate used when the caller does not provide one. */
 const LIVE_VAD_SAMPLE_RATE = 16000
 
-/** Coerce a stored/select value into one of 1.5 / 3 / 5 (default 3). */
+/** Coerce a stored/select value into one of 1.5 / 3 / 5 (default 1.5). */
 function normalizeVadSilenceSeconds(value) {
   const seconds = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''))
   for (const option of LIVE_VAD_SILENCE_OPTIONS) {
